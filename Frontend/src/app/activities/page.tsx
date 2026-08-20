@@ -1,17 +1,20 @@
 "use client";
 
 import * as React from "react";
-import { Activity as ActivityIcon, Phone, MessageSquare, Building2, Calendar, User, Search, Filter, Sparkles, CheckCircle2 } from "lucide-react";
+import { Activity as ActivityIcon, Phone, MessageSquare, Building2, Calendar, User, Search, Filter, Sparkles, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { QuickActivityModal } from "@/components/crm/quick-activity-modal";
 
 export default function ActivitiesPage() {
-  const { activities, currentUser } = useCRM();
+  const { activities, currentUser, leads } = useCRM();
   const [scope, setScope] = React.useState<"my" | "team">("my");
   const [typeFilter, setTypeFilter] = React.useState<string>("all");
   const [search, setSearch] = React.useState("");
+  const [quickLogOpen, setQuickLogOpen] = React.useState(false);
+  const [quickLogLeadId, setQuickLogLeadId] = React.useState<string | undefined>();
 
   const filteredActivities = React.useMemo(() => {
     return activities.filter((act) => {
@@ -40,6 +43,11 @@ export default function ActivitiesPage() {
     });
   }, [activities, scope, typeFilter, search, currentUser]);
 
+  const handleQuickLog = (leadId?: string) => {
+    setQuickLogLeadId(leadId);
+    setQuickLogOpen(true);
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-10">
       {/* Header */}
@@ -48,16 +56,16 @@ export default function ActivitiesPage() {
           <div className="flex items-center gap-2">
             <ActivityIcon className="h-5 w-5 text-primary" />
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-              Activity History & Audit Stream
+              Activity History & Timeline
             </h1>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Chronological audit of all calls, WhatsApp interactions, site tours, and pipeline commitments.
+            Operational sales narrative: What happened → What changed → What happens next?
           </p>
         </div>
 
         <Badge variant="outline" className="text-xs font-mono py-1 px-3 self-start sm:self-auto">
-          {filteredActivities.length} Logs Showing
+          {filteredActivities.length} Events Showing
         </Badge>
       </div>
 
@@ -119,75 +127,131 @@ export default function ActivitiesPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search logs..."
+            placeholder="Search activities..."
             className="pl-8 h-7 text-xs bg-secondary/40"
           />
         </div>
       </div>
 
-      {/* Activity Timeline List */}
+      {/* Actionable Narrative Activity Stream */}
       <div className="space-y-3">
         {filteredActivities.length === 0 ? (
           <div className="p-12 text-center text-xs text-muted-foreground bg-card rounded-xl border border-dashed border-border">
             No activity logs match your filter criteria.
           </div>
         ) : (
-          filteredActivities.map((act) => (
-            <div
-              key={act.id}
-              className="p-4 rounded-xl border border-border bg-card shadow-subtle space-y-2 text-xs"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm text-foreground capitalize flex items-center gap-1.5">
-                    {act.type === "call" && <Phone className="h-3.5 w-3.5 text-blue-600" />}
-                    {act.type === "whatsapp" && <MessageSquare className="h-3.5 w-3.5 text-emerald-600" />}
-                    {act.type === "site_visit" && <Building2 className="h-3.5 w-3.5 text-amber-600" />}
-                    {act.type.replace("_", " ")}
-                  </span>
+          filteredActivities.map((act) => {
+            const lead = leads.find((l) => l.id === act.leadId);
 
-                  {act.outcomeLabel && (
-                    <Badge variant="secondary" className="text-[11px] font-semibold">
-                      {act.outcomeLabel}
-                    </Badge>
+            return (
+              <div
+                key={act.id}
+                className="p-4 rounded-xl border border-border bg-card shadow-subtle space-y-2.5 text-xs transition-all hover:border-border/90"
+              >
+                {/* 1. Contact Header & Timestamp */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm text-foreground">{act.personName}</span>
+                    {lead && (
+                      <span className="text-muted-foreground text-xs font-mono">
+                        • {lead.projectName}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono self-end sm:self-auto">
+                    <span>by <strong>{act.userName}</strong></span>
+                    <span>•</span>
+                    <span>
+                      {new Date(act.createdAt).toLocaleString([], {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. What Happened & What Changed */}
+                <div className="p-2.5 rounded-lg bg-secondary/40 border border-border/40 space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-xs capitalize flex items-center gap-1 text-foreground">
+                      {act.type === "call" && <Phone className="h-3.5 w-3.5 text-blue-600" />}
+                      {act.type === "whatsapp" && <MessageSquare className="h-3.5 w-3.5 text-emerald-600" />}
+                      {act.type === "site_visit" && <Building2 className="h-3.5 w-3.5 text-purple-600" />}
+                      {act.type.replace("_", " ")}
+                    </span>
+                    {act.outcomeLabel && (
+                      <Badge variant="secondary" className="text-[10px] font-bold py-0.5">
+                        {act.outcomeLabel}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {act.notes && (
+                    <p className="text-foreground/90 text-xs font-medium leading-relaxed">
+                      "{act.notes}"
+                    </p>
                   )}
                 </div>
 
-                <span className="text-muted-foreground font-mono text-[11px]">
-                  {new Date(act.createdAt).toLocaleString([], {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
+                {/* 3. What Happens Next & 1-Click Outreach */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-border/40 text-xs">
+                  <div>
+                    {act.scheduledFollowUpAt ? (
+                      <span className="text-amber-800 font-semibold font-mono flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                        Next Action: {act.scheduledFollowUpAt}
+                      </span>
+                    ) : (
+                      <span className="text-rose-700 font-semibold text-[11px] flex items-center gap-1.5 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                        <AlertTriangle className="h-3 w-3 text-rose-600" />
+                        Next step missing — Risk of deal stalling
+                      </span>
+                    )}
+                  </div>
 
-              <div className="text-foreground font-medium text-xs">
-                Contact: <strong className="text-foreground">{act.personName}</strong>
+                  {lead && (
+                    <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                      <a
+                        href={`tel:${lead.phone}`}
+                        className="inline-flex items-center justify-center h-6 px-2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                      >
+                        <Phone className="h-2.5 w-2.5 mr-1" />
+                        Call
+                      </a>
+                      <a
+                        href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center h-6 px-2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                      >
+                        <MessageSquare className="h-2.5 w-2.5 mr-1" />
+                        WhatsApp
+                      </a>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-6 px-2 text-[10px] font-semibold"
+                        onClick={() => handleQuickLog(lead.id)}
+                      >
+                        Log Touchpoint
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
-
-              {act.notes && (
-                <p className="text-muted-foreground bg-secondary/40 p-2 rounded-md border border-border/40 text-[11px] leading-relaxed">
-                  "{act.notes}"
-                </p>
-              )}
-
-              <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/40">
-                <span className="flex items-center gap-1">
-                  <User className="h-3 w-3" />
-                  Logged by: <strong className="text-foreground">{act.userName}</strong>
-                </span>
-                {act.scheduledFollowUpAt && (
-                  <span className="text-amber-700 font-semibold font-mono">
-                    Scheduled Next: {act.scheduledFollowUpAt}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
+
+      <QuickActivityModal
+        open={quickLogOpen}
+        onOpenChange={setQuickLogOpen}
+        defaultLeadId={quickLogLeadId}
+      />
     </div>
   );
 }

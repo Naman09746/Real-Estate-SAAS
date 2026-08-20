@@ -86,53 +86,26 @@ export function SalespersonHome({
       });
   }, [filteredLeads]);
 
-  // Today's Sales Timeline Queue items
-  const timelineQueue = [
-    {
-      time: "09:30 AM",
-      leadName: "Vikram Mehra",
-      phone: "+91 99887 76655",
-      type: "Call · Overdue",
-      projectName: "M3M Crown",
-      unit: "Unit D-0604",
-      status: "overdue" as const,
-      leadId: "lead-103",
-      notes: "Follow up on Tower C vs D floor plans",
-    },
-    {
-      time: "11:00 AM",
-      leadName: "Rajesh Singhal",
-      phone: "+91 98112 34567",
-      type: "Site Visit",
-      projectName: "DLF The Arbour",
-      unit: "Unit C-1204",
-      status: "due_today" as const,
-      leadId: "lead-101",
-      notes: "Conduct site tour with family & golf cart reception",
-    },
-    {
-      time: "01:30 PM",
-      leadName: "Kavita Sethi",
-      phone: "+91 98188 12345",
-      type: "WhatsApp",
-      projectName: "M3M Crown",
-      unit: "Unit D-0801",
-      status: "due_today" as const,
-      leadId: "lead-106",
-      notes: "Send Saturday site visit location pin",
-    },
-    {
-      time: "04:00 PM",
-      leadName: "Rohit Bansal",
-      phone: "+91 98105 55667",
-      type: "Call · NRI Inquiry",
-      projectName: "DLF The Arbour",
-      unit: "Unit C-1402",
-      status: "due_today" as const,
-      leadId: "lead-105",
-      notes: "Explain FEMA process and share video walkthrough",
-    },
-  ];
+  // Today's Sales Timeline Queue items dynamically derived from tasks & leads
+  const timelineQueue = React.useMemo(() => {
+    const activeTasks = filteredTasks.filter((t) => t.status !== "completed");
+    if (activeTasks.length === 0) return [];
+
+    return activeTasks.slice(0, 5).map((task) => {
+      const lead = filteredLeads.find((l) => l.id === task.leadId);
+      return {
+        time: task.dueTime || (task.status === "overdue" ? "09:30 AM" : "11:30 AM"),
+        leadName: task.personName,
+        phone: task.phone,
+        type: task.status === "overdue" ? "Call · Overdue" : task.title.toLowerCase().includes("site") ? "Site Visit" : "Call · Due",
+        projectName: task.projectName,
+        unit: lead?.assignedUnitNumber ? `Unit ${lead.assignedUnitNumber}` : undefined,
+        status: task.status as "overdue" | "due_today" | "upcoming",
+        leadId: task.leadId,
+        notes: lead?.dealHealthReason || task.title,
+      };
+    });
+  }, [filteredTasks, filteredLeads]);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10">
@@ -162,7 +135,7 @@ export function SalespersonHome({
             className="h-10 px-4 text-xs font-semibold shadow-subtle bg-primary text-primary-foreground hover:bg-primary-hover flex items-center gap-2 rounded-xl"
           >
             <Plus className="h-4 w-4" />
-            <span>+ Log Activity (10s)</span>
+            <span>+ Log Activity</span>
           </Button>
         </div>
       </div>
@@ -300,16 +273,40 @@ export function SalespersonHome({
                     </span>
                   </div>
 
-                  {/* Why this action matters & Suggested Move */}
+                  {/* 2. Key Sales Context: Pitch Unit & Timing */}
+                  <div className="flex items-center justify-between text-xs py-1 px-2.5 rounded-lg bg-primary/5 border border-primary/10">
+                    <span className="font-semibold text-primary">
+                      🎯 Pitch: <strong>{lead.projectName}</strong>
+                      {lead.assignedUnitNumber ? ` · Unit ${lead.assignedUnitNumber}` : ""}
+                      {lead.configurationPreference ? ` (${lead.configurationPreference})` : ""}
+                    </span>
+                    <span className="text-[11px] font-mono font-bold text-muted-foreground">
+                      Follow-up: {lead.nextFollowUpAt || "Today"}
+                    </span>
+                  </div>
+
+                  {/* 3. Operational Intel: Why it matters, Last Interaction & Suggested Move */}
                   <div className="p-2.5 rounded-lg bg-secondary/40 border border-border/40 text-xs space-y-1.5">
                     <div>
                       <span className="text-[10px] uppercase font-bold text-muted-foreground block">
                         Why this matters:
                       </span>
                       <p className="text-foreground/90 font-medium leading-relaxed">
-                        {lead.dealHealthReason || lead.notes || "High priority customer engagement target."}
+                        {lead.dealHealthReason || "High priority customer engagement target."}
                       </p>
                     </div>
+
+                    {lead.lastConversationSummary && (
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+                          Last interaction:
+                        </span>
+                        <p className="text-muted-foreground text-[11px] leading-relaxed italic">
+                          "{lead.lastConversationSummary}"
+                        </p>
+                      </div>
+                    )}
+
                     <div>
                       <span className="text-[10px] uppercase font-bold text-primary block">
                         Suggested Next Action:
@@ -320,7 +317,7 @@ export function SalespersonHome({
                     </div>
                   </div>
 
-                  {/* 1-Click Operational Action Bar */}
+                  {/* 4. 1-Click Operational Action Bar */}
                   <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
                     <button
                       type="button"

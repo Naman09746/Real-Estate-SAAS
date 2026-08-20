@@ -5,28 +5,21 @@ import {
   CheckCircle2,
   Phone,
   MessageSquare,
-  Calendar,
   Building2,
   Clock,
   Sparkles,
-  ChevronRight,
-  User,
 } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
-import { CallOutcome, ActivityType } from "@/types/crm";
+import { ActivityType } from "@/types/crm";
 import { formatCurrencyINR, formatPhone } from "@/lib/utils";
 
 interface QuickActivityModalProps {
@@ -39,9 +32,8 @@ export type StructuredOutcome =
   | "Connected"
   | "No Answer"
   | "Interested"
-  | "Site Visit Booked"
   | "Negotiating"
-  | "Follow-up Required"
+  | "Site Visit Booked"
   | "Not Interested";
 
 export function QuickActivityModal({
@@ -54,8 +46,7 @@ export function QuickActivityModal({
   const [activityType, setActivityType] = React.useState<ActivityType>("call");
   const [outcome, setOutcome] = React.useState<StructuredOutcome>("Interested");
   const [notes, setNotes] = React.useState("");
-  const [followUpPreset, setFollowUpPreset] = React.useState<"tomorrow" | "3days" | "1week" | "custom">("tomorrow");
-  const [customFollowUp, setCustomFollowUp] = React.useState("Tomorrow, 11:00 AM");
+  const [nextActionOption, setNextActionOption] = React.useState("Tomorrow 10:00 AM");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
@@ -68,29 +59,20 @@ export function QuickActivityModal({
 
   const activeLead = leads.find((l) => l.id === selectedLeadId) || leads[0];
 
-  const structuredOutcomes: { id: StructuredOutcome; label: string; color: string }[] = [
-    { id: "Connected", label: "Connected", color: "hover:border-blue-400" },
-    { id: "Interested", label: "Interested", color: "hover:border-emerald-400" },
-    { id: "Site Visit Booked", label: "Site Visit Booked", color: "hover:border-purple-400" },
-    { id: "Negotiating", label: "Negotiating", color: "hover:border-amber-400" },
-    { id: "Follow-up Required", label: "Follow-up Required", color: "hover:border-amber-400" },
-    { id: "No Answer", label: "No Answer / Ringing", color: "hover:border-slate-400" },
-    { id: "Not Interested", label: "Not Interested", color: "hover:border-rose-400" },
+  const structuredOutcomes: { id: StructuredOutcome; label: string }[] = [
+    { id: "Connected", label: "Connected" },
+    { id: "No Answer", label: "No Answer" },
+    { id: "Interested", label: "Interested" },
+    { id: "Negotiating", label: "Negotiating" },
+    { id: "Site Visit Booked", label: "Site Visit" },
+    { id: "Not Interested", label: "Not Interested" },
   ];
-
-  const getResolvedFollowUp = () => {
-    if (followUpPreset === "tomorrow") return "Tomorrow, 11:00 AM";
-    if (followUpPreset === "3days") return "In 3 days, 11:30 AM";
-    if (followUpPreset === "1week") return "In 1 week, 12:00 PM";
-    return customFollowUp;
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeLead) return;
 
     setIsSubmitting(true);
-    const resolvedFollowUp = getResolvedFollowUp();
 
     await logActivity({
       leadId: activeLead.id,
@@ -101,10 +83,12 @@ export function QuickActivityModal({
         ? "not_interested"
         : outcome === "No Answer"
         ? "ringing_no_response"
+        : outcome === "Negotiating"
+        ? "interested"
         : "interested",
-      outcomeLabel: outcome,
+      outcomeLabel: outcome === "Site Visit Booked" ? "Site Visit Booked" : outcome,
       notes: notes || `${outcome} recorded during ${activityType} touchpoint.`,
-      nextFollowUp: resolvedFollowUp,
+      nextFollowUp: outcome === "Not Interested" || nextActionOption === "None" ? undefined : nextActionOption,
     });
 
     setIsSubmitting(false);
@@ -114,162 +98,139 @@ export function QuickActivityModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] p-5 rounded-2xl shadow-modal border border-border space-y-3">
-        <DialogHeader className="pb-2 border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <DialogTitle className="text-base font-bold text-foreground">Rapid 10-Second Activity Logger</DialogTitle>
-            </div>
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-              CALL → LOG → SCHEDULE
-            </span>
-          </div>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Fast disposition with instant follow-up commitment generation.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
-          {/* Target Lead Selector */}
-          <div className="space-y-1">
-            <Label className="text-xs font-bold text-foreground">Target Buyer / Deal</Label>
-            <div className="p-2.5 rounded-xl border border-border bg-secondary/40 flex items-center justify-between text-xs">
-              <div className="space-y-0.5">
-                <div className="font-bold text-foreground text-sm">{activeLead?.personName}</div>
-                <div className="text-muted-foreground font-mono text-[11px]">
-                  {formatPhone(activeLead?.phone)} • {activeLead?.projectName}
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="font-bold text-foreground font-mono">{formatCurrencyINR(activeLead?.budget || 0)}</span>
-                <span className="text-[10px] text-muted-foreground block">{activeLead?.stage.toUpperCase()}</span>
-              </div>
+      <DialogContent className="sm:max-w-[460px] p-5 rounded-2xl shadow-modal border border-border space-y-4">
+        {/* Header with Buyer & Deal Info */}
+        <div className="pb-3 border-b border-border flex items-start justify-between gap-3">
+          <div className="space-y-0.5">
+            <h2 className="text-base font-bold text-foreground">{activeLead?.personName}</h2>
+            <div className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              <span>{activeLead?.projectName}</span>
+              <span>•</span>
+              <span className="font-mono font-bold text-foreground">{formatCurrencyINR(activeLead?.budget || 0)}</span>
+              {activeLead?.assignedUnitNumber && (
+                <>
+                  <span>•</span>
+                  <span className="bg-secondary px-1.5 py-0.2 rounded font-mono text-[10px] text-foreground font-bold">
+                    Unit {activeLead.assignedUnitNumber}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Activity Channel */}
-          <div className="space-y-1">
-            <Label className="text-xs font-bold text-foreground">Channel</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { type: "call" as ActivityType, label: "Phone Call", icon: Phone },
-                { type: "whatsapp" as ActivityType, label: "WhatsApp", icon: MessageSquare },
-                { type: "site_visit" as ActivityType, label: "Site Visit", icon: Building2 },
-              ].map((item) => {
-                const Icon = item.icon;
-                const isSelected = activityType === item.type;
+          {/* Quick Channel Pill */}
+          <div className="flex items-center gap-1 bg-secondary/80 p-0.5 rounded-lg border border-border">
+            {[
+              { type: "call" as ActivityType, icon: Phone, title: "Call" },
+              { type: "whatsapp" as ActivityType, icon: MessageSquare, title: "WhatsApp" },
+              { type: "site_visit" as ActivityType, icon: Building2, title: "Visit" },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isSelected = activityType === item.type;
+              return (
+                <button
+                  key={item.type}
+                  type="button"
+                  onClick={() => setActivityType(item.type)}
+                  title={item.title}
+                  className={`p-1.5 rounded-md transition-all ${
+                    isSelected ? "bg-card text-foreground shadow-subtle" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3.5">
+          {/* What happened? 6-Pill Outcome Grid */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-bold text-foreground">What happened?</Label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {structuredOutcomes.map((item) => {
+                const isSelected = outcome === item.id;
                 return (
                   <button
-                    key={item.type}
+                    key={item.id}
                     type="button"
-                    onClick={() => setActivityType(item.type)}
-                    className={`h-9 px-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    onClick={() => {
+                      setOutcome(item.id);
+                      if (item.id === "Site Visit Booked") {
+                        setNextActionOption("Site Visit · Tomorrow 11:00 AM");
+                      } else if (item.id === "Not Interested") {
+                        setNextActionOption("None");
+                      }
+                    }}
+                    className={`h-8 px-2 rounded-lg text-xs font-semibold border transition-all text-center flex items-center justify-center gap-1 ${
                       isSelected
-                        ? "bg-primary text-primary-foreground border-primary shadow-subtle"
-                        : "bg-card text-muted-foreground border-border hover:bg-secondary hover:text-foreground"
+                        ? "border-primary bg-primary text-primary-foreground shadow-subtle font-bold"
+                        : "border-border bg-card text-foreground hover:bg-secondary hover:border-border/80"
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5" />
                     <span>{item.label}</span>
+                    {isSelected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Structured Outcomes Grid */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-bold text-foreground">Interaction Outcome</Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {structuredOutcomes.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setOutcome(item.id)}
-                  className={`h-8 px-2 rounded-lg text-xs font-medium border transition-all text-left truncate flex items-center justify-between ${
-                    outcome === item.id
-                      ? "border-primary bg-primary text-primary-foreground font-bold shadow-subtle"
-                      : `border-border bg-card text-foreground ${item.color}`
-                  }`}
-                >
-                  <span className="truncate">{item.label}</span>
-                  {outcome === item.id && <CheckCircle2 className="h-3 w-3 shrink-0 ml-1" />}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Next Action Scheduling (1-Click Presets) */}
-          <div className="space-y-1.5 p-3 rounded-xl border border-primary/20 bg-secondary/30">
-            <Label className="text-xs font-bold text-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-primary" />
-                Next Action Commitment
-              </span>
-              <span className="text-[10px] font-mono text-muted-foreground">Auto-generates task</span>
-            </Label>
-
-            <div className="grid grid-cols-4 gap-1.5">
-              {[
-                { id: "tomorrow" as const, label: "Tomorrow" },
-                { id: "3days" as const, label: "In 3 Days" },
-                { id: "1week" as const, label: "In 1 Week" },
-                { id: "custom" as const, label: "Custom" },
-              ].map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => setFollowUpPreset(preset.id)}
-                  className={`h-8 rounded-lg text-[11px] font-semibold border transition-all ${
-                    followUpPreset === preset.id
-                      ? "bg-primary text-primary-foreground border-primary font-bold shadow-subtle"
-                      : "bg-card text-muted-foreground border-border hover:bg-secondary hover:text-foreground"
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-
-            {followUpPreset === "custom" && (
-              <Input
-                value={customFollowUp}
-                onChange={(e) => setCustomFollowUp(e.target.value)}
-                placeholder="e.g. Next Monday, 2:30 PM"
-                className="text-xs h-8 mt-1.5 bg-card"
-                autoFocus
-              />
-            )}
-          </div>
-
-          {/* Brief Notes (Optional) */}
+          {/* Notes Input */}
           <div className="space-y-1">
-            <Label htmlFor="act-note" className="text-xs font-medium text-muted-foreground">
-              Conversation Note (Optional)
-            </Label>
+            <Label htmlFor="quick-notes" className="text-xs font-bold text-foreground">Notes</Label>
             <Input
-              id="act-note"
+              id="quick-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. Sent Tower C floor plan, client ready for weekend visit"
-              className="text-xs h-8 bg-card"
+              placeholder="e.g. Discussed Tower C 4BHK pricing, client visiting Sunday with family"
+              className="h-8 text-xs bg-secondary/30 focus:bg-card"
+              autoFocus
             />
           </div>
 
-          <DialogFooter className="pt-2 flex items-center justify-between">
+          {/* Next Action Selector */}
+          <div className="space-y-1">
+            <Label htmlFor="next-action-select" className="text-xs font-bold text-foreground flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-primary" />
+              Next action
+            </Label>
+            <select
+              id="next-action-select"
+              value={nextActionOption}
+              onChange={(e) => setNextActionOption(e.target.value)}
+              className="w-full h-8 px-2.5 rounded-lg border border-border bg-secondary/30 text-xs font-medium text-foreground focus:outline-none focus:bg-card"
+            >
+              <option value="Tomorrow 10:00 AM">Tomorrow 10:00 AM</option>
+              <option value="Tomorrow 02:30 PM">Tomorrow 02:30 PM</option>
+              <option value="Site Visit · Tomorrow 11:00 AM">Site Visit · Tomorrow 11:00 AM</option>
+              <option value="In 3 days, 11:30 AM">In 3 days (11:30 AM)</option>
+              <option value="In 1 week, 12:00 PM">In 1 week (12:00 PM)</option>
+              <option value="None">No Follow-up Scheduled</option>
+            </select>
+          </div>
+
+          {/* Action Button */}
+          <div className="pt-2 flex items-center justify-end gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
+              className="h-8 text-xs font-semibold"
             >
               Cancel
             </Button>
-            <Button type="submit" size="sm" isLoading={isSubmitting} className="font-bold">
-              Save & Schedule Next Action
+            <Button
+              type="submit"
+              size="sm"
+              isLoading={isSubmitting}
+              className="h-8 px-4 text-xs font-bold bg-primary text-primary-foreground hover:bg-primary-hover shadow-subtle"
+            >
+              Save & Schedule
             </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

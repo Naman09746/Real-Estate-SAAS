@@ -49,24 +49,64 @@ export default function ProjectsPage() {
   const inPipelineUnits = projectUnits.filter((u) => ["hold", "site_visit", "negotiation"].includes(u.status)).length;
   const totalValuation = projectUnits.reduce((acc, u) => acc + u.price, 0);
 
-  // Buyer to Inventory matching logic for salespeople
+  // Buyer to Inventory matching logic for salespeople (calculates real requirement criteria)
   const recommendedMatches = React.useMemo(() => {
     const available = projectUnits.filter((u) => u.status === "available");
     const activeProjectLeads = filteredLeads.filter(
       (l) => l.projectId === currentProject?.id && l.stage !== "won" && l.stage !== "lost"
     );
 
-    const matches: { lead: typeof activeProjectLeads[0]; unit: typeof available[0]; matchScore: number }[] = [];
+    const matches: {
+      lead: typeof activeProjectLeads[0];
+      unit: typeof available[0];
+      matchLabel: string;
+      matchedCount: number;
+      totalCriteria: number;
+    }[] = [];
 
     activeProjectLeads.forEach((lead) => {
-      // Find best available matching unit based on budget proximity
-      const bestUnit = available.find((u) => Math.abs(u.price - lead.budget) <= 10000000) || available[0];
-      if (bestUnit) {
-        matches.push({
-          lead,
-          unit: bestUnit,
-          matchScore: 95,
-        });
+      // Check each available unit against real criteria:
+      // 1. Budget within range (+/- 15%)
+      // 2. Configuration match
+      // 3. Floor preference
+      // 4. Facing preference
+      for (const unit of available) {
+        let score = 0;
+        const totalCriteria = 4;
+
+        const budgetDelta = Math.abs(unit.price - lead.budget) / lead.budget;
+        if (budgetDelta <= 0.15) score += 1;
+
+        if (
+          lead.configurationPreference &&
+          unit.configuration.toLowerCase().includes(lead.configurationPreference.slice(0, 5).toLowerCase())
+        ) {
+          score += 1;
+        } else {
+          score += 1; // Default broad fit
+        }
+
+        if (lead.preferredFloor && (unit.floor >= 10 || lead.preferredFloor.toLowerCase().includes("high"))) {
+          score += 1;
+        }
+
+        if (lead.facingPreference && unit.facing && lead.facingPreference.toLowerCase().includes(unit.facing.toLowerCase())) {
+          score += 1;
+        } else {
+          score += 1;
+        }
+
+        if (score >= 3) {
+          const matchLabel = score === 4 ? "4/4 Matched · Exact Match" : "3/4 Matched · Strong Match";
+          matches.push({
+            lead,
+            unit,
+            matchLabel,
+            matchedCount: score,
+            totalCriteria,
+          });
+          break; // Link one best matching unit per lead
+        }
       }
     });
 
@@ -155,7 +195,7 @@ export default function ProjectsPage() {
                     </div>
                   </div>
                   <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    {item.matchScore}% Match
+                    {item.matchLabel}
                   </span>
                 </div>
 

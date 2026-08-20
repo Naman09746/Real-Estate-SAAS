@@ -217,16 +217,27 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     // Update activity timeline
     setActivities((prev) => [newActivity, ...prev]);
 
-    // Update lead record
+    // Update lead record & stage progression if outcome dictates
+    let updatedStage = lead.stage;
+    if (outcomeLabel === "Site Visit Booked" && ["new", "contacted", "qualified"].includes(lead.stage)) {
+      updatedStage = "site_visit";
+    } else if (outcomeLabel === "Negotiating" && ["new", "contacted", "qualified", "site_visit"].includes(lead.stage)) {
+      updatedStage = "negotiation";
+    } else if (outcomeLabel === "Not Interested") {
+      updatedStage = "lost";
+    }
+
     setLeads((prev) =>
       prev.map((l) => {
         if (l.id === leadId) {
           return {
             ...l,
-            dealHealth: "strong", // Active touchpoint improves health
-            dealHealthReason: `Recent ${type} touchpoint logged`,
+            stage: updatedStage,
+            dealHealth: outcomeLabel === "Not Interested" ? "neutral" : "strong",
+            dealHealthReason: outcomeLabel === "Not Interested" ? "Marked Not Interested" : `Recent ${type} touchpoint: ${outcomeLabel || "Connected"}`,
             lastActivityText: `${type.toUpperCase()}: ${outcomeLabel || notes || "Logged"}`,
             lastActivityAt: new Date().toISOString(),
+            lastConversationSummary: notes ? notes : l.lastConversationSummary,
             nextFollowUpAt: nextFollowUp || l.nextFollowUpAt,
             followUpStatus: nextFollowUp ? "due_today" : l.followUpStatus,
           };
@@ -235,7 +246,17 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       })
     );
 
-    // If next follow-up requested, create a task
+    // Auto-complete any existing pending tasks for this lead since the rep just completed outreach
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.leadId === leadId && t.status !== "completed") {
+          return { ...t, status: "completed" };
+        }
+        return t;
+      })
+    );
+
+    // If next follow-up requested, create a fresh prioritized task
     if (nextFollowUp) {
       const newTask: Task = {
         id: `tsk-${Date.now()}`,
@@ -246,8 +267,9 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         projectName: lead.projectName,
         salespersonId: currentUser.id,
         salespersonName: currentUser.name,
-        title: `Follow up after ${type}: ${notes || outcomeLabel || "Scheduled"}`,
+        title: `Follow-up commitment: ${outcomeLabel || "Outreach"} (${nextFollowUp})`,
         dueDate: "Today",
+        dueTime: nextFollowUp.includes(",") ? nextFollowUp.split(",")[1]?.trim() : "11:00 AM",
         status: "due_today",
         priority: "high",
       };
