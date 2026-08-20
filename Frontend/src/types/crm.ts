@@ -24,6 +24,8 @@ export interface User {
   regionId?: string; // Salesperson/Manager assignment
   regionName?: string;
   avatarUrl?: string;
+  followUpCompletionRate?: number;
+  avgResponseTimeHours?: number;
 }
 
 export interface ProjectContact {
@@ -31,6 +33,34 @@ export interface ProjectContact {
   name: string;
   role: string;
   phone: string;
+}
+
+export type UnitStatus =
+  | "available"
+  | "hold"
+  | "site_visit"
+  | "negotiation"
+  | "booked"
+  | "sold";
+
+export interface ProjectUnit {
+  id: string;
+  orgId: string;
+  projectId: string;
+  projectName: string;
+  tower: string;
+  unitNumber: string;
+  floor: number;
+  configuration: string;
+  sizeSqFt: number;
+  superAreaSqFt?: number;
+  price: number;
+  status: UnitStatus;
+  assignedLeadId?: string;
+  assignedLeadName?: string;
+  assignedLeadPhone?: string;
+  assignedBuyerName?: string;
+  facing?: string;
 }
 
 export interface Project {
@@ -45,6 +75,9 @@ export interface Project {
   status: "active" | "launching_soon" | "completed";
   activeLeadsCount: number;
   siteVisitsCount: number;
+  totalUnits?: number;
+  availableUnitsCount?: number;
+  bookedUnitsCount?: number;
   contacts?: ProjectContact[];
 }
 
@@ -55,6 +88,11 @@ export interface Person {
   phone: string;
   email?: string;
   city?: string;
+  regionId?: string;
+  regionName?: string;
+  associatedProjectNames?: string[];
+  preferredConfiguration?: string;
+  budget?: number;
   createdAt: string;
 }
 
@@ -66,6 +104,9 @@ export type PipelineStage =
   | "negotiation"
   | "won"
   | "lost";
+
+export type DealHealth = "strong" | "neutral" | "at_risk";
+export type LeadScoreLabel = "Hot" | "Warm" | "Cold";
 
 export interface Lead {
   id: string;
@@ -83,6 +124,15 @@ export interface Lead {
   budget: number; // in INR
   stage: PipelineStage;
   source: string;
+  leadScore: number; // e.g. 92
+  leadScoreLabel: LeadScoreLabel; // "Hot" | "Warm" | "Cold"
+  dealHealth: DealHealth; // "strong" | "neutral" | "at_risk"
+  dealHealthReason?: string; // e.g. "No activity for 4 days"
+  recommendedAction?: string; // e.g. "Send Tower C vs D floor-plan comparison"
+  configurationPreference?: string; // e.g. "3 BHK + Servant"
+  assignedUnitId?: string;
+  assignedUnitNumber?: string;
+  daysInStage: number;
   lastActivityText: string;
   lastActivityAt: string;
   nextFollowUpAt?: string;
@@ -91,7 +141,14 @@ export interface Lead {
   createdAt: string;
 }
 
-export type ActivityType = "call" | "meeting" | "site_visit" | "whatsapp" | "note";
+export type ActivityType =
+  | "call"
+  | "meeting"
+  | "site_visit"
+  | "whatsapp"
+  | "note"
+  | "stage_change"
+  | "booking";
 
 export type CallOutcome =
   | "interested"
@@ -141,3 +198,4 @@ export interface AuditLog {
   details: string;
   timestamp: string;
 }
+

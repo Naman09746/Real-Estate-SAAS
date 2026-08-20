@@ -6,6 +6,9 @@ import {
   UserRole,
   Region,
   Project,
+  ProjectUnit,
+  UnitStatus,
+  Person,
   Lead,
   Activity,
   Task,
@@ -18,6 +21,8 @@ import {
   INITIAL_REGIONS,
   INITIAL_USERS,
   INITIAL_PROJECTS,
+  INITIAL_UNITS,
+  INITIAL_PEOPLE,
   INITIAL_LEADS,
   INITIAL_ACTIVITIES,
   INITIAL_TASKS,
@@ -30,6 +35,8 @@ interface CRMContextType {
   regions: Region[];
   users: User[];
   projects: Project[];
+  units: ProjectUnit[];
+  people: Person[];
   leads: Lead[];
   filteredLeads: Lead[];
   activities: Activity[];
@@ -59,6 +66,11 @@ interface CRMContextType {
   updateLeadStage: (leadId: string, stage: PipelineStage) => Promise<boolean>;
   createLead: (lead: Omit<Lead, "id" | "orgId" | "createdAt" | "lastActivityAt" | "lastActivityText">) => Promise<Lead>;
   completeTask: (taskId: string) => void;
+  updateUnitStatus: (unitId: string, status: UnitStatus, leadId?: string, buyerName?: string) => Promise<boolean>;
+  assignUnitToLead: (leadId: string, unitId: string) => Promise<boolean>;
+  bulkUpdateLeadsStage: (leadIds: string[], stage: PipelineStage) => Promise<boolean>;
+  bulkAssignLeadsRep: (leadIds: string[], repId: string, repName: string) => Promise<boolean>;
+  bulkScheduleFollowUp: (leadIds: string[], dueDate: string, dueTime?: string) => Promise<boolean>;
 }
 
 const CRMContext = React.createContext<CRMContextType | undefined>(undefined);
@@ -68,6 +80,8 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
   const [regions] = React.useState<Region[]>(INITIAL_REGIONS);
   const [users] = React.useState<User[]>(INITIAL_USERS);
   const [projects] = React.useState<Project[]>(INITIAL_PROJECTS);
+  const [units, setUnits] = React.useState<ProjectUnit[]>(INITIAL_UNITS);
+  const [people, setPeople] = React.useState<Person[]>(INITIAL_PEOPLE);
   const [leads, setLeads] = React.useState<Lead[]>(INITIAL_LEADS);
   const [activities, setActivities] = React.useState<Activity[]>(INITIAL_ACTIVITIES);
   const [tasks, setTasks] = React.useState<Task[]>(INITIAL_TASKS);
@@ -118,7 +132,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     });
   }, [tasks, currentUser]);
 
-  // Fast 10-second activity logger
+  // Fast activity logger with interconnected state updates
   const logActivity = async ({
     leadId,
     type,
@@ -161,6 +175,8 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         if (l.id === leadId) {
           return {
             ...l,
+            dealHealth: "strong", // Active touchpoint improves health
+            dealHealthReason: `Recent ${type} touchpoint logged`,
             lastActivityText: `${type.toUpperCase()}: ${outcomeLabel || notes || "Logged"}`,
             lastActivityAt: new Date().toISOString(),
             nextFollowUpAt: nextFollowUp || l.nextFollowUpAt,
@@ -193,34 +209,257 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     return true;
   };
 
-  // Safe stage transition
+  // Safe stage transition with unit & lead health synchronization
   const updateLeadStage = async (leadId: string, newStage: PipelineStage) => {
+    const lead = leads.find((l) => l.id === leadId);
+    if (!lead) return false;
+
     setLeads((prev) =>
-      prev.map((l) => (l.id === leadId ? { ...l, stage: newStage } : l))
+      prev.map((l) => {
+        if (l.id === leadId) {
+          const isWon = newStage === "won";
+          return {
+            ...l,
+            stage: newStage,
+            daysInStage: 0,
+            dealHealth: isWon ? "strong" : l.dealHealth,
+            lastActivityText: `Stage changed to ${newStage.toUpperCase().replace("_", " ")}`,
+            lastActivityAt: new Date().toISOString(),
+            followUpStatus: isWon ? "completed" : l.followUpStatus,
+          };
+        }
+        return l;
+      })
     );
+
+    // Log stage change activity
+    const stageActivity: Activity = {
+      id: `act-${Date.now()}`,
+      orgId: INITIAL_ORG.id,
+      leadId,
+      personName: lead.personName,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      type: newStage === "won" ? "booking" : "stage_change",
+      outcomeLabel: `Advanced to ${newStage.replace("_", " ").toUpperCase()}`,
+      notes: `Pipeline milestone updated to ${newStage}`,
+      createdAt: new Date().toISOString(),
+    };
+    setActivities((prev) => [stageActivity, ...prev]);
+
+    // If assigned a unit and won, update unit status to booked/sold
+    if (lead.assignedUnitId) {
+      if (newStage === "won") {
+        setUnits((prev) =>
+          prev.map((u) => (u.id === lead.assignedUnitId ? { ...u, status: "booked" } : u))
+        );
+      } else if (newStage === "lost") {
+        setUnits((prev) =>
+          prev.map((u) =>
+            u.id === lead.assignedUnitId
+              ? { ...u, status: "available", assignedLeadId: undefined, assignedBuyerName: undefined }
+              : u
+          )
+        );
+      } else if (newStage === "negotiation") {
+        setUnits((prev) =>
+          prev.map((u) => (u.id === lead.assignedUnitId ? { ...u, status: "negotiation" } : u))
+        );
+      } else if (newStage === "site_visit") {
+        setUnits((prev) =>
+          prev.map((u) => (u.id === lead.assignedUnitId ? { ...u, status: "site_visit" } : u))
+        );
+      }
+    }
+
     return true;
   };
 
-  // Create lead
+  // Create lead with people table synchronization
   const createLead = async (
     leadData: Omit<Lead, "id" | "orgId" | "createdAt" | "lastActivityAt" | "lastActivityText">
   ) => {
+    const newId = `lead-${Date.now()}`;
     const newLead: Lead = {
       ...leadData,
-      id: `lead-${Date.now()}`,
+      id: newId,
       orgId: INITIAL_ORG.id,
-      lastActivityText: "Lead created",
+      dealHealth: leadData.dealHealth || "strong",
+      leadScore: leadData.leadScore || 85,
+      leadScoreLabel: leadData.leadScoreLabel || "Hot",
+      daysInStage: 0,
+      lastActivityText: "Lead created and verified",
       lastActivityAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
     };
+
     setLeads((prev) => [newLead, ...prev]);
+
+    // Ensure person exists in people database
+    setPeople((prev) => {
+      if (prev.some((p) => p.phone === leadData.phone)) {
+        return prev;
+      }
+      return [
+        {
+          id: leadData.personId || `per-${Date.now()}`,
+          orgId: INITIAL_ORG.id,
+          name: leadData.personName,
+          phone: leadData.phone,
+          email: leadData.email,
+          city: leadData.regionName,
+          regionId: leadData.regionId,
+          regionName: leadData.regionName,
+          preferredConfiguration: leadData.configurationPreference,
+          budget: leadData.budget,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ];
+    });
+
     return newLead;
   };
 
   const completeTask = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: "completed" } : t))
     );
+
+    if (task) {
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === task.leadId
+            ? { ...l, followUpStatus: "completed", lastActivityText: `Task completed: ${task.title}` }
+            : l
+        )
+      );
+    }
+  };
+
+  const updateUnitStatus = async (
+    unitId: string,
+    status: UnitStatus,
+    leadId?: string,
+    buyerName?: string
+  ) => {
+    setUnits((prev) =>
+      prev.map((u) => {
+        if (u.id === unitId) {
+          return {
+            ...u,
+            status,
+            assignedLeadId: leadId !== undefined ? leadId : u.assignedLeadId,
+            assignedBuyerName: buyerName !== undefined ? buyerName : u.assignedBuyerName,
+          };
+        }
+        return u;
+      })
+    );
+    return true;
+  };
+
+  const assignUnitToLead = async (leadId: string, unitId: string) => {
+    const unit = units.find((u) => u.id === unitId);
+    const lead = leads.find((l) => l.id === leadId);
+    if (!unit || !lead) return false;
+
+    setLeads((prev) =>
+      prev.map((l) =>
+        l.id === leadId
+          ? {
+              ...l,
+              assignedUnitId: unit.id,
+              assignedUnitNumber: unit.unitNumber,
+              lastActivityText: `Assigned unit ${unit.unitNumber} (${unit.tower})`,
+            }
+          : l
+      )
+    );
+
+    setUnits((prev) =>
+      prev.map((u) =>
+        u.id === unitId
+          ? {
+              ...u,
+              assignedLeadId: lead.id,
+              assignedBuyerName: lead.personName,
+              status: lead.stage === "won" ? "booked" : lead.stage === "negotiation" ? "negotiation" : "hold",
+            }
+          : u
+      )
+    );
+
+    return true;
+  };
+
+  const bulkUpdateLeadsStage = async (leadIds: string[], stage: PipelineStage) => {
+    setLeads((prev) =>
+      prev.map((l) =>
+        leadIds.includes(l.id)
+          ? {
+              ...l,
+              stage,
+              daysInStage: 0,
+              lastActivityText: `Bulk update: moved to ${stage.toUpperCase()}`,
+              lastActivityAt: new Date().toISOString(),
+            }
+          : l
+      )
+    );
+    return true;
+  };
+
+  const bulkAssignLeadsRep = async (leadIds: string[], repId: string, repName: string) => {
+    setLeads((prev) =>
+      prev.map((l) =>
+        leadIds.includes(l.id)
+          ? {
+              ...l,
+              salespersonId: repId,
+              salespersonName: repName,
+              lastActivityText: `Reassigned to ${repName}`,
+              lastActivityAt: new Date().toISOString(),
+            }
+          : l
+      )
+    );
+    return true;
+  };
+
+  const bulkScheduleFollowUp = async (leadIds: string[], dueDate: string, dueTime?: string) => {
+    setLeads((prev) =>
+      prev.map((l) =>
+        leadIds.includes(l.id)
+          ? {
+              ...l,
+              nextFollowUpAt: `${dueDate}${dueTime ? `, ${dueTime}` : ""}`,
+              followUpStatus: dueDate.toLowerCase().includes("today") ? "due_today" : "upcoming",
+            }
+          : l
+      )
+    );
+
+    const targetLeads = leads.filter((l) => leadIds.includes(l.id));
+    const newTasks: Task[] = targetLeads.map((l) => ({
+      id: `tsk-${Date.now()}-${l.id}`,
+      orgId: INITIAL_ORG.id,
+      leadId: l.id,
+      personName: l.personName,
+      phone: l.phone,
+      projectName: l.projectName,
+      salespersonId: l.salespersonId,
+      salespersonName: l.salespersonName,
+      title: `Scheduled Follow-up for ${l.personName}`,
+      dueDate,
+      dueTime,
+      status: dueDate.toLowerCase().includes("today") ? "due_today" : "upcoming",
+      priority: "high",
+    }));
+
+    setTasks((prev) => [...newTasks, ...prev]);
+    return true;
   };
 
   return (
@@ -232,6 +471,8 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         regions,
         users,
         projects,
+        units,
+        people,
         leads,
         filteredLeads,
         activities,
@@ -249,6 +490,11 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         updateLeadStage,
         createLead,
         completeTask,
+        updateUnitStatus,
+        assignUnitToLead,
+        bulkUpdateLeadsStage,
+        bulkAssignLeadsRep,
+        bulkScheduleFollowUp,
       }}
     >
       {children}
@@ -263,3 +509,4 @@ export function useCRM() {
   }
   return context;
 }
+

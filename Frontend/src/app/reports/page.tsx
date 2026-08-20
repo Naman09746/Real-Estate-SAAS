@@ -11,6 +11,12 @@ import {
   FileSpreadsheet,
   Share2,
   CheckCircle2,
+  Lightbulb,
+  AlertTriangle,
+  TrendingUp,
+  Zap,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -32,23 +38,23 @@ export default function ReportsPage() {
     setTimeout(() => {
       setExporting(false);
       setExported(true);
-      setTimeout(() => setExported(false), 3000);
-    }, 800);
+      setTimeout(() => setExported(false), 800);
+    }, 600);
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-10">
       {/* Page Header with Export / Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
         <div>
           <div className="flex items-center gap-2">
             <ChartNoAxesCombined className="h-5 w-5 text-primary" />
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-              Analytics & Executive Reports
+              Executive Analytics & Management Intelligence
             </h1>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Deep-dive pipeline conversion, calling velocity, and regional revenue targets.
+            Operational pipeline analytics with actionable management diagnosis (Data → What it means → What to do).
           </p>
         </div>
 
@@ -74,15 +80,66 @@ export default function ReportsPage() {
             {exported ? (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Exported</span>
+                <span>Exported to CSV</span>
               </>
             ) : (
               <>
                 <FileSpreadsheet className="h-3.5 w-3.5" />
-                <span>Export to Sheets / CSV</span>
+                <span>Export CSV</span>
               </>
             )}
           </Button>
+        </div>
+      </div>
+
+      {/* Row 0: Management Actionable Insights (Data -> What this means -> Action) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Insight Card 1 */}
+        <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/30 space-y-2 text-xs">
+          <div className="flex items-center gap-2 font-bold text-blue-900">
+            <Lightbulb className="h-4 w-4 text-blue-600" />
+            <span>Conversion Velocity Insight</span>
+          </div>
+          <div className="text-foreground/90 space-y-1 leading-relaxed">
+            <p className="font-semibold">
+              Qualified → Site Visit conversion is <strong>42%</strong> (12% above NCR luxury benchmark).
+            </p>
+            <p className="text-muted-foreground text-[11px]">
+              <strong>Action:</strong> Allocate 2 additional junior reps to accelerate top-of-funnel lead qualification for DLF The Arbour.
+            </p>
+          </div>
+        </div>
+
+        {/* Insight Card 2 */}
+        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/30 space-y-2 text-xs">
+          <div className="flex items-center gap-2 font-bold text-amber-900">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <span>Follow-up SLA Bottleneck</span>
+          </div>
+          <div className="text-foreground/90 space-y-1 leading-relaxed">
+            <p className="font-semibold">
+              3 high-ticket buyer leads in Noida Hub have had no touchpoint in <strong>&gt; 48 hours</strong>.
+            </p>
+            <p className="text-muted-foreground text-[11px]">
+              <strong>Action:</strong> Trigger automated WhatsApp reminder or reassign to Pooja Verma to protect deal health.
+            </p>
+          </div>
+        </div>
+
+        {/* Insight Card 3 */}
+        <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/30 space-y-2 text-xs">
+          <div className="flex items-center gap-2 font-bold text-emerald-900">
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            <span>High-Demand Unit Allocation</span>
+          </div>
+          <div className="text-foreground/90 space-y-1 leading-relaxed">
+            <p className="font-semibold">
+              <strong>4 BHK Penthouses</strong> at Max Estates 128 have 3 concurrent buyers in negotiation.
+            </p>
+            <p className="text-muted-foreground text-[11px]">
+              <strong>Action:</strong> Enforce strict 48-hour token deadline before releasing inventory holds to waitlist.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -149,42 +206,44 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Row 3: Sales Rep Leaderboard Scorecard */}
+      {/* Row 3: Sales Rep Leaderboard & SLA Compliance Scorecard */}
       <div className="p-5 rounded-xl border border-border bg-card shadow-subtle space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
               <Award className="h-4 w-4 text-amber-500" />
-              Sales Representative Performance Scorecard
+              Sales Representative Performance & SLA Adherence
             </h3>
             <p className="text-xs text-muted-foreground">
-              Individual agent metrics: Calls logged, Site visits conducted, Won revenue, and Conversion rate
+              Individual agent metrics: Calls, Site visits, Response speed, Follow-up SLA compliance, and Won revenue
             </p>
           </div>
-          <Badge variant="outline" className="text-xs">August 2026 Ranking</Badge>
+          <Badge variant="outline" className="text-xs font-mono">August 2026 Ranking</Badge>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-semibold text-left">
-                <th className="pb-2 pl-2">Rank & Agent</th>
-                <th className="pb-2">Region Hub</th>
-                <th className="pb-2">Calls Logged</th>
-                <th className="pb-2">Site Visits</th>
-                <th className="pb-2">Won Deals</th>
-                <th className="pb-2">Conversion Rate</th>
-                <th className="pb-2 pr-2 text-right">Total Booking Value</th>
+              <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-bold text-left">
+                <th className="pb-2.5 pl-2">Rank & Agent</th>
+                <th className="pb-2.5">Region Hub</th>
+                <th className="pb-2.5">Calls Logged</th>
+                <th className="pb-2.5">Site Visits</th>
+                <th className="pb-2.5">Avg Response</th>
+                <th className="pb-2.5">Follow-up SLA</th>
+                <th className="pb-2.5">Won Deals</th>
+                <th className="pb-2.5">Conv. Rate</th>
+                <th className="pb-2.5 pr-2 text-right">Total Won Revenue</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
               {[
-                { rank: 1, name: "Rahul Sharma", region: "Gurgaon", calls: 84, visits: 16, won: 9, conv: "10.7%", value: 142000000 },
-                { rank: 2, name: "Pooja Verma", region: "Noida", calls: 62, visits: 11, won: 6, conv: "9.6%", value: 84000000 },
-                { rank: 3, name: "Amit Saxena", region: "Delhi", calls: 48, visits: 7, won: 3, conv: "6.2%", value: 52000000 },
+                { rank: 1, name: "Rahul Sharma", region: "Gurgaon", calls: 84, visits: 16, response: "14 mins", sla: "96%", won: 9, conv: "10.7%", value: 142000000 },
+                { rank: 2, name: "Pooja Verma", region: "Noida", calls: 62, visits: 11, response: "22 mins", sla: "91%", won: 6, conv: "9.6%", value: 84000000 },
+                { rank: 3, name: "Amit Saxena", region: "Delhi", calls: 48, visits: 7, response: "38 mins", sla: "84%", won: 3, conv: "6.2%", value: 52000000 },
               ].map((rep) => (
                 <tr key={rep.name} className="hover:bg-secondary/30 transition-colors">
-                  <td className="py-3 pl-2 font-medium text-foreground flex items-center gap-2">
+                  <td className="py-3 pl-2 font-semibold text-foreground flex items-center gap-2">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-secondary border border-border text-[10px] font-bold">
                       #{rep.rank}
                     </span>
@@ -192,8 +251,10 @@ export default function ReportsPage() {
                   </td>
                   <td className="py-3 text-muted-foreground">{rep.region}</td>
                   <td className="py-3 font-mono font-medium">{rep.calls}</td>
-                  <td className="py-3 font-mono font-medium text-amber-700">{rep.visits}</td>
-                  <td className="py-3 font-mono font-medium text-emerald-700">{rep.won}</td>
+                  <td className="py-3 font-mono font-semibold text-amber-800">{rep.visits}</td>
+                  <td className="py-3 font-mono text-muted-foreground">{rep.response}</td>
+                  <td className="py-3 font-mono font-bold text-emerald-700">{rep.sla}</td>
+                  <td className="py-3 font-mono font-bold text-emerald-800">{rep.won}</td>
                   <td className="py-3 font-mono font-bold text-foreground">{rep.conv}</td>
                   <td className="py-3 pr-2 text-right font-mono font-bold text-foreground">
                     {formatCurrencyINR(rep.value)}

@@ -3,41 +3,121 @@
 import * as React from "react";
 import { useCRM } from "@/context/crm-context";
 import { Lead, PipelineStage } from "@/types/crm";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { formatCurrencyINR, formatPhone } from "@/lib/utils";
-import { Building2, User, Phone, MessageSquare, ArrowRight } from "lucide-react";
-import { PipelineBadge } from "@/components/ui/status-badge";
+import {
+  Building2,
+  User,
+  Phone,
+  MessageSquare,
+  ArrowRight,
+  Search,
+  SlidersHorizontal,
+  Clock,
+  Flame,
+  ShieldAlert,
+} from "lucide-react";
+import { PipelineBadge, DealHealthBadge, LeadScoreBadge } from "@/components/ui/status-badge";
 
-const STAGES: { id: PipelineStage; label: string; headerColor: string }[] = [
-  { id: "new", label: "New", headerColor: "border-slate-300 bg-slate-50" },
-  { id: "contacted", label: "Contacted", headerColor: "border-blue-300 bg-blue-50" },
-  { id: "qualified", label: "Qualified", headerColor: "border-indigo-300 bg-indigo-50" },
-  { id: "site_visit", label: "Site Visit", headerColor: "border-amber-300 bg-amber-50" },
-  { id: "negotiation", label: "Negotiation", headerColor: "border-purple-300 bg-purple-50" },
-  { id: "won", label: "Won Deals", headerColor: "border-emerald-300 bg-emerald-50" },
-  { id: "lost", label: "Lost", headerColor: "border-rose-300 bg-rose-50" },
+const STAGES: { id: PipelineStage; label: string; headerColor: string; avgDays: number }[] = [
+  { id: "new", label: "New Inflow", headerColor: "border-slate-300 bg-slate-100/70", avgDays: 2 },
+  { id: "contacted", label: "Contacted", headerColor: "border-blue-300 bg-blue-50/70", avgDays: 3 },
+  { id: "qualified", label: "Qualified", headerColor: "border-indigo-300 bg-indigo-50/70", avgDays: 5 },
+  { id: "site_visit", label: "Site Visit", headerColor: "border-amber-300 bg-amber-50/70", avgDays: 7 },
+  { id: "negotiation", label: "Negotiation", headerColor: "border-purple-300 bg-purple-50/70", avgDays: 10 },
+  { id: "won", label: "Won Deals", headerColor: "border-emerald-300 bg-emerald-50/70", avgDays: 14 },
+  { id: "lost", label: "Lost", headerColor: "border-rose-300 bg-rose-50/70", avgDays: 8 },
 ];
 
 export function PipelineBoard({ onSelectLead }: { onSelectLead: (lead: Lead) => void }) {
-  const { filteredLeads, updateLeadStage } = useCRM();
+  const { filteredLeads, updateLeadStage, users, projects } = useCRM();
+
+  const [search, setSearch] = React.useState("");
+  const [healthFilter, setHealthFilter] = React.useState<string>("all");
+  const [projectFilter, setProjectFilter] = React.useState<string>("all");
+
+  const visibleLeads = filteredLeads.filter((l) => {
+    const matchSearch =
+      l.personName.toLowerCase().includes(search.toLowerCase()) ||
+      l.phone.includes(search) ||
+      l.projectName.toLowerCase().includes(search.toLowerCase());
+    const matchHealth = healthFilter === "all" || l.dealHealth === healthFilter;
+    const matchProject = projectFilter === "all" || l.projectId === projectFilter;
+    return matchSearch && matchHealth && matchProject;
+  });
+
+  const totalPipelineValue = visibleLeads.reduce((acc, curr) => acc + (curr.budget || 0), 0);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      {/* Top Bar with Metrics & Filters */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
         <div>
           <h2 className="text-base font-bold text-foreground">Deals & Opportunities Pipeline</h2>
-          <p className="text-xs text-muted-foreground">Kanban view with instant stage transitions and Indian pricing</p>
+          <p className="text-xs text-muted-foreground">
+            Multi-stage Kanban matrix with Deal Health tracking, SLA velocity, and live value distribution.
+          </p>
         </div>
-        <Badge variant="outline" className="text-xs font-mono">
-          Total {filteredLeads.length} Leads
-        </Badge>
+
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <span className="text-[10px] text-muted-foreground block font-bold uppercase tracking-wider">Active Pipeline</span>
+            <span className="text-sm font-bold text-foreground font-mono">{formatCurrencyINR(totalPipelineValue)}</span>
+          </div>
+          <Badge variant="outline" className="text-xs font-mono">
+            {visibleLeads.length} Leads
+          </Badge>
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="p-3 rounded-xl border border-border bg-card shadow-subtle flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative w-52 sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search deals..."
+              className="pl-8 h-8 text-xs bg-secondary/40"
+            />
+          </div>
+
+          <select
+            value={healthFilter}
+            onChange={(e) => setHealthFilter(e.target.value)}
+            className="h-8 px-2.5 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none"
+          >
+            <option value="all">All Deal Health</option>
+            <option value="strong">🟢 Strong</option>
+            <option value="neutral">⚪ Neutral</option>
+            <option value="at_risk">🔴 At Risk</option>
+          </select>
+
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="h-8 px-2.5 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none"
+          >
+            <option value="all">All Projects ({projects.length})</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <span className="text-xs text-muted-foreground font-mono">
+          Showing {visibleLeads.length} deals
+        </span>
       </div>
 
       {/* Horizontal Scrollable Kanban Columns */}
-      <div className="flex gap-3 overflow-x-auto pb-4 pt-1">
+      <div className="flex gap-3.5 overflow-x-auto pb-4 pt-1">
         {STAGES.map((st) => {
-          const stageLeads = filteredLeads.filter((l) => l.stage === st.id);
+          const stageLeads = visibleLeads.filter((l) => l.stage === st.id);
           const stageTotalValue = stageLeads.reduce((acc, curr) => acc + (curr.budget || 0), 0);
 
           return (
@@ -48,12 +128,17 @@ export function PipelineBoard({ onSelectLead }: { onSelectLead: (lead: Lead) => 
               {/* Column Header */}
               <div className={`p-3 rounded-t-xl border-b border-border/80 ${st.headerColor} flex items-center justify-between`}>
                 <div>
-                  <span className="font-semibold text-xs text-foreground block">{st.label}</span>
-                  <span className="text-[10px] text-muted-foreground font-mono">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-xs text-foreground">{st.label}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      (avg {st.avgDays}d)
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground font-mono font-semibold">
                     {formatCurrencyINR(stageTotalValue)}
                   </span>
                 </div>
-                <Badge variant="secondary" className="text-[10px] font-mono">
+                <Badge variant="secondary" className="text-[10px] font-mono font-bold">
                   {stageLeads.length}
                 </Badge>
               </div>
@@ -61,7 +146,7 @@ export function PipelineBoard({ onSelectLead }: { onSelectLead: (lead: Lead) => 
               {/* Column Cards */}
               <div className="p-2 space-y-2 overflow-y-auto flex-1">
                 {stageLeads.length === 0 ? (
-                  <div className="p-4 text-center text-[11px] text-muted-foreground rounded border border-dashed border-border/60">
+                  <div className="p-4 text-center text-[11px] text-muted-foreground rounded-lg border border-dashed border-border/60">
                     No leads in this stage
                   </div>
                 ) : (
@@ -69,30 +154,53 @@ export function PipelineBoard({ onSelectLead }: { onSelectLead: (lead: Lead) => 
                     <div
                       key={lead.id}
                       onClick={() => onSelectLead(lead)}
-                      className="p-3 rounded-lg border border-border bg-card shadow-subtle hover:border-border/90 cursor-pointer space-y-2 text-xs transition-all hover:shadow-card"
+                      className={`p-3 rounded-lg border bg-card shadow-subtle hover:border-primary/50 cursor-pointer space-y-2 text-xs transition-all hover:shadow-card ${
+                        lead.dealHealth === "at_risk" ? "border-red-200" : "border-border"
+                      }`}
                     >
+                      {/* Top Row: Name & Budget */}
                       <div className="flex items-start justify-between gap-1">
                         <div>
-                          <div className="font-semibold text-foreground">{lead.personName}</div>
-                          <div className="text-[11px] text-muted-foreground font-mono">
+                          <div className="font-bold text-foreground">{lead.personName}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">
                             {formatPhone(lead.phone)}
                           </div>
                         </div>
-                        <span className="font-bold text-foreground text-xs">
+                        <span className="font-bold text-foreground text-xs font-mono">
                           {formatCurrencyINR(lead.budget)}
                         </span>
                       </div>
 
+                      {/* Badges: Score & Health */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
+                        <DealHealthBadge health={lead.dealHealth} reason={lead.dealHealthReason} />
+                      </div>
+
+                      {/* Project & Rep */}
                       <div className="space-y-1 text-[11px] text-muted-foreground">
-                        <div className="flex items-center gap-1 text-foreground/80 truncate">
-                          <Building2 className="h-3 w-3 shrink-0" />
+                        <div className="flex items-center gap-1 text-foreground font-medium truncate">
+                          <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
                           <span className="truncate">{lead.projectName}</span>
+                          {lead.assignedUnitNumber && (
+                            <span className="text-[10px] font-mono font-bold bg-secondary px-1 rounded">
+                              Unit {lead.assignedUnitNumber}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center justify-between text-[10px]">
                           <span>{lead.regionName}</span>
                           <span>Rep: <strong>{lead.salespersonName.split(" ")[0]}</strong></span>
                         </div>
                       </div>
+
+                      {/* Next Action Snippet if available */}
+                      {lead.nextFollowUpAt && (
+                        <div className="text-[10px] text-muted-foreground bg-secondary/40 p-1.5 rounded flex items-center gap-1">
+                          <Clock className="h-3 w-3 text-primary shrink-0" />
+                          <span className="truncate font-medium">{lead.nextFollowUpAt}</span>
+                        </div>
+                      )}
 
                       {/* Quick stage advance dropdown */}
                       <div
@@ -103,7 +211,7 @@ export function PipelineBoard({ onSelectLead }: { onSelectLead: (lead: Lead) => 
                         <select
                           value={lead.stage}
                           onChange={(e) => updateLeadStage(lead.id, e.target.value as PipelineStage)}
-                          className="text-[10px] font-medium h-6 rounded border border-border bg-secondary px-1 text-foreground focus:outline-none"
+                          className="text-[10px] font-semibold h-6 rounded border border-border bg-secondary px-1 text-foreground focus:outline-none"
                         >
                           {STAGES.map((s) => (
                             <option key={s.id} value={s.id}>
