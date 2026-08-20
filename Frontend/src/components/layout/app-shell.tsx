@@ -39,8 +39,24 @@ export function AppShell() {
   const { currentUser } = useCRM();
   const isBoss = currentUser.role === "boss";
 
-  // Navigation State
-  const [activeTab, setActiveTab] = React.useState<string>("overview");
+  // Navigation State with localStorage persistence
+  const [activeTab, setActiveTabState] = React.useState<string>("overview");
+
+  React.useEffect(() => {
+    try {
+      const savedTab = localStorage.getItem("callcrm_active_tab");
+      if (savedTab) {
+        setActiveTabState(savedTab);
+      }
+    } catch {}
+  }, []);
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem("callcrm_active_tab", tab);
+    } catch {}
+  };
 
   // Modals state
   const [quickLogOpen, setQuickLogOpen] = React.useState(false);
@@ -59,6 +75,45 @@ export function AppShell() {
     setQuickLogLeadId(leadId);
     setQuickLogOpen(true);
   };
+
+  // Global Keyboard Shortcuts (L, F, /, Esc)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const isInput =
+        active &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT" ||
+          (active as HTMLElement).isContentEditable);
+
+      // Esc closes open modals unconditionally
+      if (e.key === "Escape") {
+        if (quickLogOpen) setQuickLogOpen(false);
+        if (detailOpen) setDetailOpen(false);
+        if (searchOpen) setSearchOpen(false);
+        if (mobileMenuOpen) setMobileMenuOpen(false);
+        return;
+      }
+
+      // If user is typing in a form field, do not trigger single-key hotkeys
+      if (isInput) return;
+
+      if (e.key.toLowerCase() === "l" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        handleOpenQuickLog();
+      } else if (e.key.toLowerCase() === "f" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setActiveTab("tasks");
+      } else if (e.key === "/" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [quickLogOpen, detailOpen, searchOpen, mobileMenuOpen]);
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden selection:bg-primary/10">

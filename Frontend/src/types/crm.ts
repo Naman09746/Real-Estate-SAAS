@@ -130,6 +130,15 @@ export interface Lead {
   dealHealthReason?: string; // e.g. "No activity for 4 days"
   recommendedAction?: string; // e.g. "Send Tower C vs D floor-plan comparison"
   configurationPreference?: string; // e.g. "3 BHK + Servant"
+  preferredFloor?: string; // e.g. "High floor (12 - 18)"
+  facingPreference?: string; // e.g. "North-East / Park Facing"
+  parkingRequirement?: string; // e.g. "2 Covered Car Parks"
+  buyerIntent?: string; // e.g. "End-User (Primary Residence)"
+  decisionMakers?: string; // e.g. "Buyer & Spouse"
+  buyingSignals?: string[]; // e.g. ["Budget verified", "Unit shortlisted", "Family involved"]
+  objections?: string[]; // e.g. ["Price", "Floor rise"]
+  lastConversationSummary?: string; // e.g. "Customer prefers 3 BHK + servant, comparing Tower C vs D. Price is the main concern."
+  suggestedNextMove?: string; // e.g. "Send Tower C vs D comparison and payment schedule."
   assignedUnitId?: string;
   assignedUnitNumber?: string;
   daysInStage: number;

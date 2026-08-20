@@ -15,9 +15,14 @@ import {
   Layers,
   Sparkles,
   Command,
+  Clock,
+  AlertTriangle,
+  FileSpreadsheet,
+  CheckCircle2,
+  TrendingUp,
 } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
-import { Lead } from "@/types/crm";
+import { Lead, Project } from "@/types/crm";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { PipelineBadge, DealHealthBadge, LeadScoreBadge, UnitStatusBadge } from "@/components/ui/status-badge";
 import { formatCurrencyINR, formatPhone } from "@/lib/utils";
@@ -28,6 +33,18 @@ interface GlobalSearchDialogProps {
   onSelectLead: (lead: Lead) => void;
   onNavigateTab?: (tab: string) => void;
   onOpenQuickLog?: () => void;
+  onOpenCreateLead?: () => void;
+}
+
+interface CommandItem {
+  id: string;
+  category: "command" | "lead" | "project" | "unit" | "person";
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  icon: any;
+  action: () => void;
+  lead?: Lead;
 }
 
 export function GlobalSearchDialog({
@@ -36,9 +53,11 @@ export function GlobalSearchDialog({
   onSelectLead,
   onNavigateTab,
   onOpenQuickLog,
+  onOpenCreateLead,
 }: GlobalSearchDialogProps) {
-  const { leads, projects, units, people } = useCRM();
+  const { leads, projects, units, people, setSelectedProjectId } = useCRM();
   const [query, setQuery] = React.useState("");
+  const [selectedIndex, setSelectedIndex] = React.useState(0);
 
   // Keyboard shortcut listener for Cmd+K
   React.useEffect(() => {
@@ -52,35 +71,204 @@ export function GlobalSearchDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onOpenChange]);
 
-  const matchedLeads = leads.filter(
-    (l) =>
-      l.personName.toLowerCase().includes(query.toLowerCase()) ||
-      l.phone.includes(query) ||
-      l.projectName.toLowerCase().includes(query.toLowerCase()) ||
-      (l.assignedUnitNumber && l.assignedUnitNumber.toLowerCase().includes(query.toLowerCase()))
-  );
+  // Reset search when dialog opens/closes
+  React.useEffect(() => {
+    if (open) {
+      setQuery("");
+      setSelectedIndex(0);
+    }
+  }, [open]);
 
-  const matchedProjects = projects.filter((p) =>
-    p.name.toLowerCase().includes(query.toLowerCase()) ||
-    p.regionName.toLowerCase().includes(query.toLowerCase())
-  );
+  // Build unified search items
+  const items: CommandItem[] = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list: CommandItem[] = [];
 
-  const matchedUnits = units.filter(
-    (u) =>
-      u.unitNumber.toLowerCase().includes(query.toLowerCase()) ||
-      u.tower.toLowerCase().includes(query.toLowerCase()) ||
-      (u.assignedLeadName && u.assignedLeadName.toLowerCase().includes(query.toLowerCase()))
-  );
+    // 1. Static & Dynamic Commands
+    const commands: CommandItem[] = [
+      {
+        id: "cmd-create-lead",
+        category: "command",
+        title: "Create New Lead Entry",
+        subtitle: "Add fresh real-estate buyer inquiry",
+        icon: Plus,
+        action: () => {
+          onOpenChange(false);
+          if (onNavigateTab) onNavigateTab("leads");
+          if (onOpenCreateLead) onOpenCreateLead();
+        },
+      },
+      {
+        id: "cmd-log-call",
+        category: "command",
+        title: "Log Call / WhatsApp Activity",
+        subtitle: "10-second rapid touchpoint recording",
+        icon: Phone,
+        action: () => {
+          onOpenChange(false);
+          if (onOpenQuickLog) onOpenQuickLog();
+        },
+      },
+      {
+        id: "cmd-overdue",
+        category: "command",
+        title: "Show Overdue Calling Queue",
+        subtitle: "Critical follow-ups needing instant outreach",
+        badge: "🔴 Urgency",
+        icon: AlertTriangle,
+        action: () => {
+          onOpenChange(false);
+          if (onNavigateTab) onNavigateTab("tasks");
+        },
+      },
+      {
+        id: "cmd-pipeline",
+        category: "command",
+        title: "Go to Sales Pipeline Board",
+        subtitle: "Kanban deal distribution & stage matrix",
+        icon: Columns3,
+        action: () => {
+          onOpenChange(false);
+          if (onNavigateTab) onNavigateTab("pipeline");
+        },
+      },
+      {
+        id: "cmd-inventory",
+        category: "command",
+        title: "Open Unit Inventory Matrix",
+        subtitle: "Tower → Floor → Unit availability grid",
+        icon: Layers,
+        action: () => {
+          onOpenChange(false);
+          if (onNavigateTab) onNavigateTab("projects");
+        },
+      },
+      {
+        id: "cmd-reports",
+        category: "command",
+        title: "Go to Executive Analytics & Reports",
+        subtitle: "Conversion bottlenecks and rep SLAs",
+        icon: TrendingUp,
+        action: () => {
+          onOpenChange(false);
+          if (onNavigateTab) onNavigateTab("reports");
+        },
+      },
+    ];
+
+    // Filter commands by query
+    if (q) {
+      commands.forEach((c) => {
+        if (c.title.toLowerCase().includes(q) || (c.subtitle && c.subtitle.toLowerCase().includes(q))) {
+          list.push(c);
+        }
+      });
+    } else {
+      list.push(...commands.slice(0, 4));
+    }
+
+    // 2. Matched Leads
+    leads.forEach((l) => {
+      if (
+        !q ||
+        l.personName.toLowerCase().includes(q) ||
+        l.phone.includes(q) ||
+        l.projectName.toLowerCase().includes(q) ||
+        (l.assignedUnitNumber && l.assignedUnitNumber.toLowerCase().includes(q))
+      ) {
+        list.push({
+          id: `lead-${l.id}`,
+          category: "lead",
+          title: l.personName,
+          subtitle: `${formatPhone(l.phone)} • ${l.projectName} ${l.assignedUnitNumber ? `(Unit ${l.assignedUnitNumber})` : ""} • ${formatCurrencyINR(l.budget)}`,
+          badge: l.stage.toUpperCase(),
+          icon: User,
+          lead: l,
+          action: () => {
+            onOpenChange(false);
+            onSelectLead(l);
+          },
+        });
+      }
+    });
+
+    // 3. Matched Projects
+    projects.forEach((p) => {
+      if (!q || p.name.toLowerCase().includes(q) || p.regionName.toLowerCase().includes(q) || p.developer.toLowerCase().includes(q)) {
+        list.push({
+          id: `proj-${p.id}`,
+          category: "project",
+          title: `Open ${p.name}`,
+          subtitle: `${p.regionName} • ${p.developer} • Price: ${p.priceRange}`,
+          badge: `${p.activeLeadsCount} Leads`,
+          icon: Building2,
+          action: () => {
+            onOpenChange(false);
+            setSelectedProjectId(p.id);
+            if (onNavigateTab) onNavigateTab("projects");
+          },
+        });
+      }
+    });
+
+    // 4. Matched Units (when querying)
+    if (q) {
+      units.forEach((u) => {
+        if (
+          u.unitNumber.toLowerCase().includes(q) ||
+          u.tower.toLowerCase().includes(q) ||
+          (u.assignedLeadName && u.assignedLeadName.toLowerCase().includes(q))
+        ) {
+          list.push({
+            id: `unit-${u.id}`,
+            category: "unit",
+            title: `Unit ${u.unitNumber} (${u.tower})`,
+            subtitle: `${u.projectName} • ${u.configuration} • ${formatCurrencyINR(u.price)} ${u.assignedLeadName ? `• Buyer: ${u.assignedLeadName}` : ""}`,
+            badge: u.status.toUpperCase(),
+            icon: Home,
+            action: () => {
+              onOpenChange(false);
+              setSelectedProjectId(u.projectId);
+              if (onNavigateTab) onNavigateTab("projects");
+            },
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [query, leads, projects, units, onNavigateTab, onOpenCreateLead, onOpenQuickLog, onSelectLead, setSelectedProjectId]);
+
+  // Handle keyboard navigation (Arrow Up, Down, Enter)
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev + 1 < items.length ? prev + 1 : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev - 1 >= 0 ? prev - 1 : items.length - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (items[selectedIndex]) {
+        items[selectedIndex].action();
+      }
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="p-0 sm:max-w-[560px] overflow-hidden rounded-xl">
+      <DialogContent className="p-0 sm:max-w-[580px] overflow-hidden rounded-2xl shadow-modal border border-border">
+        {/* Command Search Input */}
         <div className="flex items-center px-4 border-b border-border bg-card">
           <Search className="h-4 w-4 text-muted-foreground mr-2.5 shrink-0" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search leads, units (e.g. C-1402), projects, or commands..."
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelectedIndex(0);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a command or search (e.g. 'Rajesh', 'DLF', 'Create lead', 'Overdue')..."
             className="h-12 w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
             autoFocus
           />
@@ -89,153 +277,72 @@ export function GlobalSearchDialog({
           </kbd>
         </div>
 
-        <div className="max-h-80 overflow-y-auto p-2 space-y-3">
-          {/* Quick Actions (when query is short or matches keywords) */}
-          {query.trim().length === 0 && (
-            <div className="space-y-1">
-              <div className="px-2.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                Quick Command Shortcuts
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 px-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    if (onOpenQuickLog) onOpenQuickLog();
-                  }}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-secondary/40 hover:bg-secondary text-xs text-left transition-colors text-foreground font-medium"
-                >
-                  <Plus className="h-3.5 w-3.5 text-primary" />
-                  <span>Log Activity / Call</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    if (onNavigateTab) onNavigateTab("tasks");
-                  }}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-secondary/40 hover:bg-secondary text-xs text-left transition-colors text-foreground font-medium"
-                >
-                  <ListTodo className="h-3.5 w-3.5 text-amber-600" />
-                  <span>Calling Queue</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    if (onNavigateTab) onNavigateTab("pipeline");
-                  }}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-secondary/40 hover:bg-secondary text-xs text-left transition-colors text-foreground font-medium"
-                >
-                  <Columns3 className="h-3.5 w-3.5 text-purple-600" />
-                  <span>Pipeline Board</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    if (onNavigateTab) onNavigateTab("projects");
-                  }}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-secondary/40 hover:bg-secondary text-xs text-left transition-colors text-foreground font-medium"
-                >
-                  <Layers className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>Unit Inventory Matrix</span>
-                </button>
-              </div>
+        {/* Command Results List */}
+        <div className="max-h-84 overflow-y-auto p-2 space-y-1">
+          {items.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              No matching commands, leads, or property units found.
             </div>
-          )}
+          ) : (
+            items.slice(0, 15).map((item, idx) => {
+              const Icon = item.icon;
+              const isHighlighted = idx === selectedIndex;
 
-          {/* Matched Leads */}
-          {matchedLeads.length > 0 && (
-            <div className="space-y-1">
-              <div className="px-2.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                Leads & Enquiries ({matchedLeads.length})
-              </div>
-              {matchedLeads.slice(0, 5).map((lead) => (
+              return (
                 <div
-                  key={lead.id}
-                  onClick={() => {
-                    onOpenChange(false);
-                    onSelectLead(lead);
-                  }}
-                  className="px-2.5 py-2 rounded-lg hover:bg-secondary/60 cursor-pointer flex items-center justify-between text-xs transition-colors"
+                  key={item.id}
+                  onClick={item.action}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                  className={`px-3 py-2 rounded-xl cursor-pointer flex items-center justify-between text-xs transition-colors ${
+                    isHighlighted ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-secondary/60 text-foreground"
+                  }`}
                 >
-                  <div className="space-y-0.5">
-                    <div className="font-bold text-foreground flex items-center gap-1.5">
-                      <span>{lead.personName}</span>
-                      <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
+                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
+                      isHighlighted ? "border-white/30 bg-white/10" : "border-border bg-secondary/50"
+                    }`}>
+                      <Icon className="h-3.5 w-3.5" />
                     </div>
-                    <div className="text-[11px] text-muted-foreground font-mono">
-                      {formatPhone(lead.phone)} • {lead.projectName} {lead.assignedUnitNumber && `(Unit ${lead.assignedUnitNumber})`}
+
+                    <div className="min-w-0">
+                      <div className="font-bold truncate flex items-center gap-1.5">
+                        <span>{item.title}</span>
+                        {item.lead && (
+                          <LeadScoreBadge score={item.lead.leadScore} label={item.lead.leadScoreLabel} />
+                        )}
+                      </div>
+                      {item.subtitle && (
+                        <div className={`text-[11px] truncate ${isHighlighted ? "text-primary-foreground/80 font-normal" : "text-muted-foreground font-normal"}`}>
+                          {item.subtitle}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono font-semibold text-foreground text-xs">
-                      {formatCurrencyINR(lead.budget)}
+
+                  {item.badge && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold shrink-0 ${
+                      isHighlighted ? "bg-white/20 text-white" : "bg-secondary text-muted-foreground"
+                    }`}>
+                      {item.badge}
                     </span>
-                    <PipelineBadge stage={lead.stage} />
-                  </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              );
+            })
           )}
+        </div>
 
-          {/* Matched Inventory Units */}
-          {matchedUnits.length > 0 && query.trim().length > 0 && (
-            <div className="space-y-1 pt-1.5 border-t border-border/50">
-              <div className="px-2.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                Property Inventory Units ({matchedUnits.length})
-              </div>
-              {matchedUnits.slice(0, 4).map((unit) => (
-                <div
-                  key={unit.id}
-                  onClick={() => {
-                    onOpenChange(false);
-                    if (onNavigateTab) onNavigateTab("projects");
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg hover:bg-secondary/60 cursor-pointer flex items-center justify-between text-xs transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Home className="h-3.5 w-3.5 text-primary" />
-                    <div>
-                      <span className="font-bold text-foreground">{unit.tower} • Unit {unit.unitNumber}</span>
-                      <span className="text-[10px] text-muted-foreground block font-mono">
-                        {unit.configuration} • {formatCurrencyINR(unit.price)}
-                      </span>
-                    </div>
-                  </div>
-                  <UnitStatusBadge status={unit.status} />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Matched Projects */}
-          {matchedProjects.length > 0 && (
-            <div className="space-y-1 pt-1.5 border-t border-border/50">
-              <div className="px-2.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                Projects ({matchedProjects.length})
-              </div>
-              {matchedProjects.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => {
-                    onOpenChange(false);
-                    if (onNavigateTab) onNavigateTab("projects");
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg hover:bg-secondary/60 cursor-pointer flex items-center justify-between text-xs transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="font-bold text-foreground">{p.name}</span>
-                  </div>
-                  <span className="text-[11px] text-muted-foreground">{p.regionName} • {p.developer}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Footer info */}
+        <div className="px-4 py-2 border-t border-border bg-secondary/30 flex items-center justify-between text-[10px] text-muted-foreground">
+          <div className="flex items-center gap-3">
+            <span>↑↓ Navigate</span>
+            <span>↵ Select</span>
+            <span>ESC Close</span>
+          </div>
+          <span>CallCRM Intelligence</span>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
+

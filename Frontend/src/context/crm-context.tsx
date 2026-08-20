@@ -86,11 +86,59 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
   const [activities, setActivities] = React.useState<Activity[]>(INITIAL_ACTIVITIES);
   const [tasks, setTasks] = React.useState<Task[]>(INITIAL_TASKS);
 
-  // Filters (primarily for Boss/Manager)
-  const [selectedRegionId, setSelectedRegionId] = React.useState<string>("all");
-  const [selectedSalespersonId, setSelectedSalespersonId] = React.useState<string>("all");
-  const [selectedProjectId, setSelectedProjectId] = React.useState<string>("all");
-  const [dateRange, setDateRange] = React.useState<string>("this_month");
+  // Filters (primarily for Boss/Manager) with localStorage persistence
+  const [selectedRegionId, setSelectedRegionIdState] = React.useState<string>("all");
+  const [selectedSalespersonId, setSelectedSalespersonIdState] = React.useState<string>("all");
+  const [selectedProjectId, setSelectedProjectIdState] = React.useState<string>("all");
+  const [dateRange, setDateRangeState] = React.useState<string>("this_month");
+
+  // Restore saved filters on mount
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem("callcrm_global_filters");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.selectedRegionId) setSelectedRegionIdState(parsed.selectedRegionId);
+        if (parsed.selectedSalespersonId) setSelectedSalespersonIdState(parsed.selectedSalespersonId);
+        if (parsed.selectedProjectId) setSelectedProjectIdState(parsed.selectedProjectId);
+        if (parsed.dateRange) setDateRangeState(parsed.dateRange);
+      }
+    } catch (e) {
+      console.warn("Could not load saved filters", e);
+    }
+  }, []);
+
+  const setSelectedRegionId = (id: string) => {
+    setSelectedRegionIdState(id);
+    try {
+      const saved = JSON.parse(localStorage.getItem("callcrm_global_filters") || "{}");
+      localStorage.setItem("callcrm_global_filters", JSON.stringify({ ...saved, selectedRegionId: id }));
+    } catch {}
+  };
+
+  const setSelectedSalespersonId = (id: string) => {
+    setSelectedSalespersonIdState(id);
+    try {
+      const saved = JSON.parse(localStorage.getItem("callcrm_global_filters") || "{}");
+      localStorage.setItem("callcrm_global_filters", JSON.stringify({ ...saved, selectedSalespersonId: id }));
+    } catch {}
+  };
+
+  const setSelectedProjectId = (id: string) => {
+    setSelectedProjectIdState(id);
+    try {
+      const saved = JSON.parse(localStorage.getItem("callcrm_global_filters") || "{}");
+      localStorage.setItem("callcrm_global_filters", JSON.stringify({ ...saved, selectedProjectId: id }));
+    } catch {}
+  };
+
+  const setDateRange = (range: string) => {
+    setDateRangeState(range);
+    try {
+      const saved = JSON.parse(localStorage.getItem("callcrm_global_filters") || "{}");
+      localStorage.setItem("callcrm_global_filters", JSON.stringify({ ...saved, dateRange: range }));
+    } catch {}
+  };
 
   // Switch role convenience helper
   const switchRole = (role: UserRole) => {

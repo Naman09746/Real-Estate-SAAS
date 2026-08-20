@@ -49,6 +49,30 @@ export default function ProjectsPage() {
   const inPipelineUnits = projectUnits.filter((u) => ["hold", "site_visit", "negotiation"].includes(u.status)).length;
   const totalValuation = projectUnits.reduce((acc, u) => acc + u.price, 0);
 
+  // Buyer to Inventory matching logic for salespeople
+  const recommendedMatches = React.useMemo(() => {
+    const available = projectUnits.filter((u) => u.status === "available");
+    const activeProjectLeads = filteredLeads.filter(
+      (l) => l.projectId === currentProject?.id && l.stage !== "won" && l.stage !== "lost"
+    );
+
+    const matches: { lead: typeof activeProjectLeads[0]; unit: typeof available[0]; matchScore: number }[] = [];
+
+    activeProjectLeads.forEach((lead) => {
+      // Find best available matching unit based on budget proximity
+      const bestUnit = available.find((u) => Math.abs(u.price - lead.budget) <= 10000000) || available[0];
+      if (bestUnit) {
+        matches.push({
+          lead,
+          unit: bestUnit,
+          matchScore: 95,
+        });
+      }
+    });
+
+    return matches;
+  }, [projectUnits, filteredLeads, currentProject]);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
       {/* Header */}
@@ -76,7 +100,6 @@ export default function ProjectsPage() {
       <div className="flex gap-2 overflow-x-auto pb-2">
         {projects.map((p) => {
           const isSelected = p.id === selectedProjectId;
-          const pUnitCount = units.filter((u) => u.projectId === p.id).length;
           return (
             <button
               key={p.id}
@@ -101,6 +124,72 @@ export default function ProjectsPage() {
           );
         })}
       </div>
+
+      {/* Recommended Inventory for My Leads Section */}
+      {recommendedMatches.length > 0 && (
+        <div className="p-4 rounded-xl border border-primary/20 bg-secondary/30 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-foreground">
+                Recommended Inventory for Active Buyers (WHO → WANTS WHAT → UNIT → PRICE)
+              </h2>
+            </div>
+            <span className="text-[11px] font-mono text-muted-foreground">
+              {recommendedMatches.length} Matches in {currentProject?.name}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {recommendedMatches.slice(0, 2).map((item, idx) => (
+              <div
+                key={idx}
+                className="p-3.5 rounded-xl border border-border bg-card shadow-subtle flex flex-col justify-between gap-2.5 text-xs"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground block">Target Buyer (WHO)</span>
+                    <div className="font-bold text-foreground text-sm flex items-center gap-2">
+                      <span>{item.lead.personName}</span>
+                      <span className="text-[11px] font-mono text-muted-foreground">({formatPhone(item.lead.phone)})</span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    {item.matchScore}% Match
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 p-2 rounded-lg bg-secondary/40 border border-border/40 text-[11px]">
+                  <div>
+                    <span className="text-[9px] uppercase font-bold text-muted-foreground block">Buyer Requirement</span>
+                    <span className="font-semibold text-foreground">{item.lead.configurationPreference || "3/4 BHK"} · {item.lead.facingPreference || "North-East"}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] uppercase font-bold text-muted-foreground block">Recommended Unit</span>
+                    <span className="font-bold text-primary font-mono">{item.unit.tower} · Unit {item.unit.unitNumber}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-border/40 text-[11px]">
+                  <div>
+                    <span className="text-muted-foreground">Unit Price: </span>
+                    <strong className="font-mono text-foreground">{formatCurrencyINR(item.unit.price)}</strong>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`tel:${item.lead.phone}`}
+                      className="inline-flex items-center justify-center h-6 px-2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                    >
+                      <Phone className="h-2.5 w-2.5 mr-1" />
+                      Pitch Unit
+                    </a>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Selected Project Overview Card */}
       {currentProject && (
