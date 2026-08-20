@@ -63,12 +63,12 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Top Filter Bar (Compact, Business-first) */}
-      <div className="p-3 rounded-xl border border-border bg-card shadow-subtle flex flex-wrap items-center justify-between gap-2.5 text-xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 font-semibold text-foreground mr-1">
-            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+    <div className="space-y-8 pb-8">
+      {/* Top Filter Bar (Clean, Spacious) */}
+      <div className="p-4 rounded-xl border border-border bg-card shadow-sm flex flex-wrap items-center justify-between gap-4 text-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 font-semibold text-foreground mr-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
             <span>Filters:</span>
           </div>
 
@@ -76,7 +76,7 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value)}
-            className="h-8 px-2.5 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 px-3 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:bg-secondary/80 cursor-pointer"
           >
             <option value="this_month">This Month (Aug 2026)</option>
             <option value="last_30_days">Last 30 Days</option>
@@ -87,7 +87,7 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
           <select
             value={selectedRegionId}
             onChange={(e) => setSelectedRegionId(e.target.value)}
-            className="h-8 px-2.5 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 px-3 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:bg-secondary/80 cursor-pointer"
           >
             <option value="all">All Regions ({regions.length})</option>
             {regions.map((r) => (
@@ -101,7 +101,7 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
           <select
             value={selectedSalespersonId}
             onChange={(e) => setSelectedSalespersonId(e.target.value)}
-            className="h-8 px-2.5 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 px-3 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:bg-secondary/80 cursor-pointer"
           >
             <option value="all">All Salespeople ({salespeople.length})</option>
             {salespeople.map((s) => (
@@ -115,7 +115,7 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
           <select
             value={selectedProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
-            className="h-8 px-2.5 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 px-3 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors hover:bg-secondary/80 cursor-pointer"
           >
             <option value="all">All Projects ({projects.length})</option>
             {projects.map((p) => (
@@ -129,92 +129,101 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
         <Button
           variant="outline"
           size="sm"
-          className="h-8 text-xs"
+          className="h-9"
           onClick={() => {
             setSelectedRegionId("all");
             setSelectedSalespersonId("all");
             setSelectedProjectId("all");
           }}
         >
-          <RefreshCw className="h-3 w-3 mr-1.5" />
+          <RefreshCw className="h-3.5 w-3.5 mr-2" />
           Reset Filters
         </Button>
       </div>
 
       {/* 6 Clean Executive KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Card className="p-3.5 space-y-1">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 md:gap-5">
+        <Card className="p-5 flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest block">
             Total Inflow
           </span>
-          <div className="text-2xl font-bold tracking-tight text-foreground">{totalLeads}</div>
-          <div className="text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
-            <span className="text-emerald-600 font-semibold">+18%</span> vs prev mo
+          <div className="text-3xl font-extrabold tracking-tight text-foreground">{totalLeads}</div>
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+            <span className="text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded font-bold">+18%</span> vs prev mo
           </div>
         </Card>
 
-        <Card className="p-3.5 space-y-1">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+        <Card className="p-5 flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest block">
             Open Pipeline
           </span>
-          <div className="text-2xl font-bold tracking-tight text-foreground">{openLeads}</div>
-          <div className="text-[11px] text-muted-foreground font-medium">Active conversations</div>
+          <div className="text-3xl font-extrabold tracking-tight text-foreground">{openLeads}</div>
+          <div className="text-xs text-muted-foreground font-medium pt-1">Active conversations</div>
         </Card>
 
-        <Card className="p-3.5 space-y-1">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+        <Card className="p-5 flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow">
+          <span className="text-xs font-semibold text-amber-700/80 uppercase tracking-widest block">
             Site Visits Done
           </span>
-          <div className="text-2xl font-bold tracking-tight text-amber-700">{siteVisits}</div>
-          <div className="text-[11px] text-amber-700 font-medium">High intent buyers</div>
+          <div className="text-3xl font-extrabold tracking-tight text-amber-700">{siteVisits}</div>
+          <div className="text-xs text-amber-700/80 font-medium pt-1">High intent buyers</div>
         </Card>
 
-        <Card className="p-3.5 space-y-1">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+        <Card className="p-5 flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow">
+          <span className="text-xs font-semibold text-emerald-700/80 uppercase tracking-widest block">
             Deals Closed
           </span>
-          <div className="text-2xl font-bold tracking-tight text-emerald-700">{wonDeals}</div>
-          <div className="text-[11px] text-emerald-700 font-semibold font-mono">₹24.6 Cr booked</div>
+          <div className="text-3xl font-extrabold tracking-tight text-emerald-700">{wonDeals}</div>
+          <div className="text-xs text-emerald-700 font-semibold font-mono bg-emerald-50 rounded px-2 py-0.5 w-fit">
+            ₹24.6 Cr booked
+          </div>
         </Card>
 
-        <Card className="p-3.5 space-y-1">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+        <Card className="p-5 flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow">
+          <span className="text-xs font-semibold text-rose-700/80 uppercase tracking-widest block">
             Follow-ups Due
           </span>
-          <div className="text-2xl font-bold tracking-tight text-rose-700">{followUpsDue}</div>
-          <div className="text-[11px] text-rose-600 font-medium font-mono">3 Overdue</div>
+          <div className="text-3xl font-extrabold tracking-tight text-rose-700">{followUpsDue}</div>
+          <div className="text-xs text-rose-600 font-bold font-mono bg-rose-50 rounded px-2 py-0.5 w-fit">
+            3 Overdue
+          </div>
         </Card>
 
-        <Card className="p-3.5 space-y-1">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+        <Card className="p-5 flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest block">
             Gross Pipeline
           </span>
-          <div className="text-xl font-bold tracking-tight text-foreground truncate">
+          <div className="text-2xl font-extrabold tracking-tight text-foreground truncate pt-1">
             {formatCurrencyINR(totalPipelineValue)}
           </div>
-          <div className="text-[11px] text-muted-foreground font-medium">Across all projects</div>
+          <div className="text-xs text-muted-foreground font-medium pt-1">Across all projects</div>
         </Card>
       </div>
 
       {/* Pipeline Stage Distribution Breakdown Bar */}
-      <Card className="p-4 space-y-3">
+      <Card className="p-6 space-y-5">
         <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <h3 className="text-sm font-bold text-foreground">Pipeline Stage Distribution</h3>
-            <p className="text-xs text-muted-foreground">Cumulative volume across sales milestones</p>
+          <div className="space-y-1">
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              Pipeline Stage Distribution
+            </h3>
+            <p className="text-sm text-muted-foreground">Cumulative volume across sales milestones</p>
           </div>
-          <span className="text-xs font-mono text-muted-foreground">{totalLeads} total deals</span>
+          <span className="text-sm font-mono text-muted-foreground font-medium bg-secondary/50 px-3 py-1 rounded-full border border-border/50">
+            {totalLeads} total deals
+          </span>
         </div>
 
         {/* Multi-segment distribution bar */}
-        <div className="h-3 w-full rounded-md bg-secondary flex overflow-hidden border border-border/60">
+        <div className="h-4 w-full rounded-full bg-secondary flex overflow-hidden border border-border/80 shadow-inner">
           {stages.map((st) => {
             const pct = totalLeads > 0 ? (st.count / totalLeads) * 100 : 0;
             if (pct === 0) return null;
             return (
               <div
                 key={st.key}
-                className={`${st.color} h-full transition-all duration-300`}
+                className={`${st.color} h-full transition-all duration-500 ease-out hover:opacity-90 hover:scale-y-110 cursor-help`}
                 style={{ width: `${pct}%` }}
                 title={`${st.label}: ${st.count} (${pct.toFixed(1)}%)`}
               />
@@ -223,58 +232,66 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
         </div>
 
         {/* Stage Legend Pills */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 text-xs">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2 text-sm">
           {stages.map((st) => (
-            <div key={st.key} className="flex items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 rounded-full ${st.color}`} />
-              <span className="text-muted-foreground">{st.label}:</span>
-              <strong className="font-semibold text-foreground font-mono">{st.count}</strong>
+            <div key={st.key} className="flex items-center gap-2">
+              <span className={`h-3 w-3 rounded-full ${st.color} shadow-sm`} />
+              <span className="text-muted-foreground font-medium">{st.label}:</span>
+              <strong className="font-bold text-foreground font-mono">{st.count}</strong>
             </div>
           ))}
         </div>
       </Card>
 
       {/* Main Content Area: High-Priority Deals & Activity Audit Feed */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
         {/* Priority Lead Opportunities */}
-        <div className="lg:col-span-8 space-y-3">
+        <div className="xl:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-foreground">High-Priority Opportunities</h3>
-              <p className="text-xs text-muted-foreground">Click any record to inspect chronological history or log call</p>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                <Flame className="h-4 w-4 text-orange-500" />
+                High-Priority Opportunities
+              </h3>
+              <p className="text-sm text-muted-foreground">Click any record to inspect chronological history or log call</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5">
             {filteredLeads.map((lead) => (
               <div
                 key={lead.id}
                 onClick={() => onSelectLead(lead)}
-                className="p-3.5 rounded-xl border border-border bg-card hover:border-border/80 cursor-pointer shadow-subtle hover:shadow-card transition-all space-y-2.5"
+                className="p-5 rounded-2xl border border-border/80 bg-card hover:border-border cursor-pointer shadow-subtle hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 space-y-4"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-foreground">{lead.personName}</span>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1.5">
+                    <span className="font-bold text-base text-foreground block">{lead.personName}</span>
                     <PipelineBadge stage={lead.stage} />
                   </div>
-                  <span className="text-xs font-bold text-foreground font-mono">{formatCurrencyINR(lead.budget)}</span>
+                  <span className="text-sm font-extrabold text-foreground font-mono bg-secondary/50 px-2.5 py-1 rounded-md border border-border/50">
+                    {formatCurrencyINR(lead.budget)}
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="text-foreground/90 font-medium">{lead.projectName}</span>
-                  <span>•</span>
+                <div className="flex items-center gap-2.5 text-sm text-muted-foreground font-medium flex-wrap">
+                  <span className="text-foreground/90">{lead.projectName}</span>
+                  <span className="text-border text-xs">•</span>
                   <span>{lead.regionName}</span>
-                  <span>•</span>
-                  <span>Rep: <strong>{lead.salespersonName.split(" ")[0]}</strong></span>
+                  <span className="text-border text-xs">•</span>
+                  <span>Rep: <strong className="text-foreground">{lead.salespersonName.split(" ")[0]}</strong></span>
                 </div>
 
-                <div className="text-[11px] text-muted-foreground truncate bg-secondary/50 p-2 rounded-md border border-border/40 font-mono">
+                <div className="text-xs text-muted-foreground bg-secondary/40 p-3 rounded-lg border border-border/40 font-mono leading-relaxed line-clamp-2">
                   {lead.lastActivityText}
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] pt-1 text-muted-foreground">
-                  <TaskStatusBadge status={lead.followUpStatus || "upcoming"} />
-                  <span className="font-medium text-foreground">{lead.nextFollowUpAt || "—"}</span>
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40 mt-1">
+                  <div className="mt-3"><TaskStatusBadge status={lead.followUpStatus || "upcoming"} /></div>
+                  <span className="font-bold text-foreground mt-3 flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    {lead.nextFollowUpAt || "No follow-up scheduled"}
+                  </span>
                 </div>
               </div>
             ))}
@@ -282,39 +299,50 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
         </div>
 
         {/* Live Immutable Calling Audit Feed */}
-        <div className="lg:col-span-4 space-y-3">
+        <div className="xl:col-span-1 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-foreground">Live Calling Feed</h3>
-            <span className="text-[11px] text-muted-foreground font-mono">Audit Stream</span>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                <Target className="h-4 w-4 text-blue-500" />
+                Live Calling Feed
+              </h3>
+              <p className="text-sm text-muted-foreground">Real-time audit stream</p>
+            </div>
           </div>
 
-          <Card className="p-3.5 space-y-3 max-h-[560px] overflow-y-auto">
+          <Card className="p-5 space-y-5 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-border/50 hover:scrollbar-thumb-border">
             {activities.map((act) => (
-              <div key={act.id} className="text-xs pb-3 border-b border-border/60 last:border-0 last:pb-0 space-y-1">
+              <div key={act.id} className="text-sm pb-5 border-b border-border/50 last:border-0 last:pb-0 space-y-2.5 relative">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold capitalize text-foreground">{act.type}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold capitalize text-foreground">{act.type}</span>
                     {act.outcomeLabel && (
-                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                      <span className="rounded bg-secondary/80 border border-border/50 px-2 py-0.5 text-xs font-semibold text-foreground">
                         {act.outcomeLabel}
                       </span>
                     )}
                   </div>
-                  <span className="text-[10px] text-muted-foreground font-mono">
+                  <span className="text-xs text-muted-foreground font-mono font-medium">
                     {new Date(act.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </div>
 
-                <div className="font-medium text-foreground">{act.personName}</div>
+                <div className="font-bold text-foreground">{act.personName}</div>
                 {act.notes && (
-                  <p className="text-[11px] text-muted-foreground leading-relaxed bg-secondary/30 p-1.5 rounded">
+                  <p className="text-xs text-muted-foreground/90 leading-relaxed bg-secondary/30 p-2.5 rounded-lg border border-border/30">
                     "{act.notes}"
                   </p>
                 )}
-                <div className="text-[10px] text-muted-foreground/80 flex items-center justify-between">
-                  <span>Logged by {act.userName}</span>
+                <div className="text-xs text-muted-foreground flex items-center justify-between font-medium pt-1">
+                  <span className="flex items-center gap-1.5">
+                    <Users className="h-3 w-3" />
+                    {act.userName}
+                  </span>
                   {act.scheduledFollowUpAt && (
-                    <span className="text-amber-700 font-semibold">Next: {act.scheduledFollowUpAt}</span>
+                    <span className="text-amber-700 flex items-center gap-1.5 font-bold">
+                      <Calendar className="h-3 w-3" />
+                      {act.scheduledFollowUpAt}
+                    </span>
                   )}
                 </div>
               </div>
