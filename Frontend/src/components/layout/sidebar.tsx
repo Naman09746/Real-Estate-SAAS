@@ -22,7 +22,13 @@ import { useCRM } from "@/context/crm-context";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
-export function Sidebar({ className }: { className?: string }) {
+interface SidebarProps {
+  className?: string;
+  activeTab?: string;
+  onSelectTab?: (tab: string) => void;
+}
+
+export function Sidebar({ className, activeTab, onSelectTab }: SidebarProps) {
   const pathname = usePathname();
   const { currentUser, switchRole } = useCRM();
 
@@ -30,31 +36,38 @@ export function Sidebar({ className }: { className?: string }) {
   const isBoss = currentUser.role === "boss";
 
   const bossNavItems = [
-    { label: "Overview", href: "/", icon: LayoutDashboard },
-    { label: "Leads", href: "/leads", icon: Users },
-    { label: "Pipeline", href: "/pipeline", icon: Kanban },
-    { label: "People", href: "/people", icon: Contact },
-    { label: "Projects", href: "/projects", icon: Building2 },
-    { label: "Activities", href: "/activities", icon: Activity },
-    { label: "Tasks", href: "/tasks", icon: ListTodo },
-    { label: "Reports", href: "/reports", icon: ChartNoAxesCombined },
+    { id: "overview", label: "Overview", href: "/", icon: LayoutDashboard },
+    { id: "leads", label: "Leads", href: "/leads", icon: Users },
+    { id: "pipeline", label: "Pipeline", href: "/pipeline", icon: Kanban },
+    { id: "people", label: "People", href: "/people", icon: Contact },
+    { id: "projects", label: "Projects", href: "/projects", icon: Building2 },
+    { id: "activities", label: "Activities", href: "/activities", icon: Activity },
+    { id: "tasks", label: "Tasks", href: "/tasks", icon: ListTodo },
+    { id: "reports", label: "Reports", href: "/reports", icon: ChartNoAxesCombined },
   ];
 
   const adminNavItems = [
-    { label: "Users", href: "/users", icon: Users },
-    { label: "Regions", href: "/regions", icon: MapPin },
-    { label: "Settings", href: "/settings", icon: Settings },
+    { id: "users", label: "Users", href: "/users", icon: Users },
+    { id: "regions", label: "Regions", href: "/regions", icon: MapPin },
+    { id: "settings", label: "Settings", href: "/settings", icon: Settings },
   ];
 
   const salespersonNavItems = [
-    { label: "Home", href: "/", icon: Home },
-    { label: "My Leads", href: "/leads", icon: Users },
-    { label: "Follow-ups", href: "/tasks", icon: ListTodo },
-    { label: "Projects", href: "/projects", icon: Building2 },
-    { label: "Activities", href: "/activities", icon: Activity },
+    { id: "overview", label: "Home", href: "/", icon: Home },
+    { id: "leads", label: "My Leads", href: "/leads", icon: Users },
+    { id: "tasks", label: "Follow-ups", href: "/tasks", icon: ListTodo },
+    { id: "projects", label: "Projects", href: "/projects", icon: Building2 },
+    { id: "activities", label: "Activities", href: "/activities", icon: Activity },
   ];
 
   const currentNav = isBoss ? bossNavItems : salespersonNavItems;
+
+  const handleNavClick = (id: string, e: React.MouseEvent) => {
+    if (onSelectTab) {
+      e.preventDefault();
+      onSelectTab(id);
+    }
+  };
 
   return (
     <aside
@@ -91,14 +104,15 @@ export function Sidebar({ className }: { className?: string }) {
 
           {currentNav.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive = activeTab ? activeTab === item.id : pathname === item.href;
 
             return (
-              <Link
+              <a
                 key={item.label}
                 href={item.href}
+                onClick={(e) => handleNavClick(item.id, e)}
                 className={cn(
-                  "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                  "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                   isActive
                     ? "bg-secondary text-foreground font-semibold shadow-subtle"
                     : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
@@ -106,7 +120,7 @@ export function Sidebar({ className }: { className?: string }) {
               >
                 <Icon className="h-4 w-4 shrink-0 stroke-[1.75]" />
                 <span>{item.label}</span>
-              </Link>
+              </a>
             );
           })}
 
@@ -118,14 +132,15 @@ export function Sidebar({ className }: { className?: string }) {
               </div>
               {adminNavItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href;
+                const isActive = activeTab ? activeTab === item.id : pathname === item.href;
 
                 return (
-                  <Link
+                  <a
                     key={item.label}
                     href={item.href}
+                    onClick={(e) => handleNavClick(item.id, e)}
                     className={cn(
-                      "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                      "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                       isActive
                         ? "bg-secondary text-foreground font-semibold"
                         : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
@@ -133,7 +148,7 @@ export function Sidebar({ className }: { className?: string }) {
                   >
                     <Icon className="h-4 w-4 shrink-0 stroke-[1.75]" />
                     <span>{item.label}</span>
-                  </Link>
+                  </a>
                 );
               })}
             </div>

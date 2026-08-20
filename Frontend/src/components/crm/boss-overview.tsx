@@ -15,8 +15,6 @@ import {
   ChevronRight,
   Target,
   Flame,
-  Award,
-  Zap,
 } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -25,11 +23,6 @@ import { Badge } from "@/components/ui/badge";
 import { PipelineBadge, TaskStatusBadge } from "@/components/ui/status-badge";
 import { formatCurrencyINR, formatPhone } from "@/lib/utils";
 import { Lead } from "@/types/crm";
-import { Sparkline } from "@/components/crm/charts/sparkline";
-import { AreaTrendChart } from "@/components/crm/charts/area-trend-chart";
-import { ConversionFunnel } from "@/components/crm/charts/conversion-funnel";
-import { CircularProgress } from "@/components/crm/charts/circular-progress";
-import { ActivityHeatmap } from "@/components/crm/charts/activity-heatmap";
 
 export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => void }) {
   const {
@@ -58,11 +51,16 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
 
   const salespeople = users.filter((u) => u.role === "salesperson");
 
-  // Trend data arrays for sparklines (30-day velocity points)
-  const leadsTrend = [18, 22, 28, 25, 34, 42, 39, 48, 56, 62, 58, 74, 82];
-  const visitsTrend = [3, 5, 4, 8, 7, 12, 10, 16, 14, 19, 22, 24, 28];
-  const dealsTrend = [1, 1, 2, 2, 3, 2, 4, 3, 5, 4, 6, 6, 7];
-  const valueTrend = [120, 150, 140, 210, 240, 290, 310, 380, 420, 485];
+  // Stage breakdown counts
+  const stages = [
+    { key: "new", label: "New Inflow", count: filteredLeads.filter((l) => l.stage === "new").length, color: "bg-slate-500" },
+    { key: "contacted", label: "Contacted", count: filteredLeads.filter((l) => l.stage === "contacted").length, color: "bg-blue-600" },
+    { key: "qualified", label: "Qualified", count: filteredLeads.filter((l) => l.stage === "qualified").length, color: "bg-indigo-600" },
+    { key: "site_visit", label: "Site Visit Done", count: filteredLeads.filter((l) => l.stage === "site_visit").length, color: "bg-amber-600" },
+    { key: "negotiation", label: "Negotiation", count: filteredLeads.filter((l) => l.stage === "negotiation").length, color: "bg-purple-600" },
+    { key: "won", label: "Won Deals", count: filteredLeads.filter((l) => l.stage === "won").length, color: "bg-emerald-600" },
+    { key: "lost", label: "Lost / Dropped", count: filteredLeads.filter((l) => l.stage === "lost").length, color: "bg-rose-500" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -143,197 +141,116 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
         </Button>
       </div>
 
-      {/* Visual KPI Cards with Sparklines */}
+      {/* 6 Clean Executive KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Card className="p-3.5 space-y-2 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
-              Total Inflow
-            </span>
-            <span className="text-[10px] text-emerald-600 font-bold font-mono">+18%</span>
-          </div>
+        <Card className="p-3.5 space-y-1">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+            Total Inflow
+          </span>
           <div className="text-2xl font-bold tracking-tight text-foreground">{totalLeads}</div>
-          <Sparkline data={leadsTrend} width={100} height={24} color="#0f172a" />
+          <div className="text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
+            <span className="text-emerald-600 font-semibold">+18%</span> vs prev mo
+          </div>
         </Card>
 
-        <Card className="p-3.5 space-y-2 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
-              Open Pipeline
-            </span>
-            <span className="text-[10px] text-blue-600 font-bold font-mono">Active</span>
-          </div>
+        <Card className="p-3.5 space-y-1">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+            Open Pipeline
+          </span>
           <div className="text-2xl font-bold tracking-tight text-foreground">{openLeads}</div>
-          <Sparkline data={[14, 18, 16, 22, 26, 24, 28]} width={100} height={24} color="#2563eb" />
+          <div className="text-[11px] text-muted-foreground font-medium">Active conversations</div>
         </Card>
 
-        <Card className="p-3.5 space-y-2 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
-              Site Visits
-            </span>
-            <span className="text-[10px] text-amber-700 font-bold font-mono">+24%</span>
-          </div>
+        <Card className="p-3.5 space-y-1">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+            Site Visits Done
+          </span>
           <div className="text-2xl font-bold tracking-tight text-amber-700">{siteVisits}</div>
-          <Sparkline data={visitsTrend} width={100} height={24} color="#d97706" />
+          <div className="text-[11px] text-amber-700 font-medium">High intent buyers</div>
         </Card>
 
-        <Card className="p-3.5 space-y-2 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
-              Deals Closed
-            </span>
-            <span className="text-[10px] text-emerald-700 font-bold font-mono">₹24.6 Cr</span>
-          </div>
+        <Card className="p-3.5 space-y-1">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+            Deals Closed
+          </span>
           <div className="text-2xl font-bold tracking-tight text-emerald-700">{wonDeals}</div>
-          <Sparkline data={dealsTrend} width={100} height={24} color="#059669" />
+          <div className="text-[11px] text-emerald-700 font-semibold font-mono">₹24.6 Cr booked</div>
         </Card>
 
-        <Card className="p-3.5 space-y-2 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
-              Follow-ups Due
-            </span>
-            <span className="text-[10px] text-rose-600 font-bold font-mono">3 Overdue</span>
-          </div>
+        <Card className="p-3.5 space-y-1">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+            Follow-ups Due
+          </span>
           <div className="text-2xl font-bold tracking-tight text-rose-700">{followUpsDue}</div>
-          <Sparkline data={[8, 12, 10, 14, 16, 12, 14]} width={100} height={24} color="#dc2626" />
+          <div className="text-[11px] text-rose-600 font-medium font-mono">3 Overdue</div>
         </Card>
 
-        <Card className="p-3.5 space-y-2 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
-              Pipeline Value
-            </span>
-            <span className="text-[10px] text-emerald-600 font-bold font-mono">Gross</span>
-          </div>
+        <Card className="p-3.5 space-y-1">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+            Gross Pipeline
+          </span>
           <div className="text-xl font-bold tracking-tight text-foreground truncate">
             {formatCurrencyINR(totalPipelineValue)}
           </div>
-          <Sparkline data={valueTrend} width={100} height={24} color="#059669" />
+          <div className="text-[11px] text-muted-foreground font-medium">Across all projects</div>
         </Card>
       </div>
 
-      {/* Main Analytics Visuals: Area Trend Chart & Conversion Funnel */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Weekly Velocity Multi-Area Trend Chart */}
-        <div className="lg:col-span-7 space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-foreground">Weekly Velocity & Deal Momentum</h3>
-              <p className="text-xs text-muted-foreground">Interactive lead inflow vs scheduled physical site visits</p>
-            </div>
-            <Badge variant="outline" className="text-[10px] font-mono">8-Week Telemetry</Badge>
+      {/* Pipeline Stage Distribution Breakdown Bar */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-bold text-foreground">Pipeline Stage Distribution</h3>
+            <p className="text-xs text-muted-foreground">Cumulative volume across sales milestones</p>
           </div>
-          <AreaTrendChart />
+          <span className="text-xs font-mono text-muted-foreground">{totalLeads} total deals</span>
         </div>
 
-        {/* Pipeline Conversion Funnel */}
-        <div className="lg:col-span-5 p-4 rounded-xl border border-border bg-card shadow-subtle space-y-4">
-          <ConversionFunnel />
-        </div>
-      </div>
-
-      {/* Regional Performance & Activity Heatmap */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Regional Performance Matrix */}
-        <div className="lg:col-span-5 p-4 rounded-xl border border-border bg-card shadow-subtle space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-foreground">Regional Target Completion</h3>
-              <p className="text-xs text-muted-foreground">Quota progress across NCR hubs</p>
-            </div>
-            <Target className="h-4 w-4 text-muted-foreground" />
-          </div>
-
-          <div className="space-y-3">
-            {[
-              { name: "Gurgaon Hub", leads: 142, quotaPct: 88, value: 345000000, color: "#0f172a" },
-              { name: "Noida Hub", leads: 86, quotaPct: 74, value: 185000000, color: "#2563eb" },
-              { name: "Delhi Hub", leads: 48, quotaPct: 62, value: 95000000, color: "#059669" },
-            ].map((hub) => (
+        {/* Multi-segment distribution bar */}
+        <div className="h-3 w-full rounded-md bg-secondary flex overflow-hidden border border-border/60">
+          {stages.map((st) => {
+            const pct = totalLeads > 0 ? (st.count / totalLeads) * 100 : 0;
+            if (pct === 0) return null;
+            return (
               <div
-                key={hub.name}
-                className="p-3 rounded-lg border border-border bg-secondary/30 flex items-center justify-between gap-3 text-xs"
-              >
-                <CircularProgress
-                  value={hub.quotaPct}
-                  size={52}
-                  strokeWidth={4.5}
-                  color={hub.color}
-                  label={hub.name}
-                  sublabel={`${hub.leads} active leads`}
-                />
-                <div className="text-right">
-                  <div className="font-bold text-foreground font-mono">{formatCurrencyINR(hub.value)}</div>
-                  <div className="text-[10px] text-muted-foreground">Target: 90%</div>
-                </div>
-              </div>
-            ))}
-          </div>
+                key={st.key}
+                className={`${st.color} h-full transition-all duration-300`}
+                style={{ width: `${pct}%` }}
+                title={`${st.label}: ${st.count} (${pct.toFixed(1)}%)`}
+              />
+            );
+          })}
         </div>
 
-        {/* Weekly Calling Density Matrix Heatmap */}
-        <div className="lg:col-span-7 p-4 rounded-xl border border-border bg-card shadow-subtle space-y-4">
-          <ActivityHeatmap />
+        {/* Stage Legend Pills */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 text-xs">
+          {stages.map((st) => (
+            <div key={st.key} className="flex items-center gap-1.5">
+              <span className={`h-2.5 w-2.5 rounded-full ${st.color}`} />
+              <span className="text-muted-foreground">{st.label}:</span>
+              <strong className="font-semibold text-foreground font-mono">{st.count}</strong>
+            </div>
+          ))}
         </div>
-      </div>
+      </Card>
 
-      {/* Sales Rep Leaderboard & Recent Organization Leads */}
+      {/* Main Content Area: High-Priority Deals & Activity Audit Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Sales Rep Scorecard */}
-        <div className="lg:col-span-4 p-4 rounded-xl border border-border bg-card shadow-subtle space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-              <Award className="h-4 w-4 text-amber-500" />
-              Sales Rep Leaderboard
-            </h3>
-            <span className="text-[11px] text-muted-foreground">August 2026</span>
-          </div>
-
-          <div className="space-y-2.5 pt-1">
-            {[
-              { name: "Rahul Sharma", region: "Gurgaon", closed: "₹14.2 Cr", visits: 16, rank: "1" },
-              { name: "Pooja Verma", region: "Noida", closed: "₹8.4 Cr", visits: 11, rank: "2" },
-              { name: "Amit Saxena", region: "Delhi", closed: "₹5.2 Cr", visits: 7, rank: "3" },
-            ].map((rep) => (
-              <div
-                key={rep.name}
-                className="p-2.5 rounded-lg border border-border bg-secondary/40 flex items-center justify-between text-xs"
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-card border border-border text-[11px] font-bold text-foreground">
-                    #{rep.rank}
-                  </span>
-                  <div>
-                    <div className="font-semibold text-foreground">{rep.name}</div>
-                    <div className="text-[10px] text-muted-foreground">{rep.region} • {rep.visits} visits</div>
-                  </div>
-                </div>
-                <div className="text-right font-mono">
-                  <div className="font-bold text-emerald-700">{rep.closed}</div>
-                  <div className="text-[10px] text-muted-foreground">Won Value</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Active Organization Leads Feed */}
+        {/* Priority Lead Opportunities */}
         <div className="lg:col-span-8 space-y-3">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-bold text-foreground">High-Priority Opportunities</h3>
-              <p className="text-xs text-muted-foreground">Real-time leads sorted by deal value and follow-up urgency</p>
+              <p className="text-xs text-muted-foreground">Click any record to inspect chronological history or log call</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {filteredLeads.map((lead) => (
               <div
                 key={lead.id}
                 onClick={() => onSelectLead(lead)}
-                className="p-3.5 rounded-xl border border-border bg-card hover:border-border/80 cursor-pointer shadow-subtle hover:shadow-card transition-all space-y-2"
+                className="p-3.5 rounded-xl border border-border bg-card hover:border-border/80 cursor-pointer shadow-subtle hover:shadow-card transition-all space-y-2.5"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -351,12 +268,58 @@ export function BossOverview({ onSelectLead }: { onSelectLead: (lead: Lead) => v
                   <span>Rep: <strong>{lead.salespersonName.split(" ")[0]}</strong></span>
                 </div>
 
-                <div className="text-[11px] text-muted-foreground truncate bg-secondary/50 p-1.5 rounded border border-border/40 font-mono">
+                <div className="text-[11px] text-muted-foreground truncate bg-secondary/50 p-2 rounded-md border border-border/40 font-mono">
                   {lead.lastActivityText}
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] pt-1 text-muted-foreground">
+                  <TaskStatusBadge status={lead.followUpStatus || "upcoming"} />
+                  <span className="font-medium text-foreground">{lead.nextFollowUpAt || "—"}</span>
                 </div>
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Live Immutable Calling Audit Feed */}
+        <div className="lg:col-span-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-foreground">Live Calling Feed</h3>
+            <span className="text-[11px] text-muted-foreground font-mono">Audit Stream</span>
+          </div>
+
+          <Card className="p-3.5 space-y-3 max-h-[560px] overflow-y-auto">
+            {activities.map((act) => (
+              <div key={act.id} className="text-xs pb-3 border-b border-border/60 last:border-0 last:pb-0 space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold capitalize text-foreground">{act.type}</span>
+                    {act.outcomeLabel && (
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                        {act.outcomeLabel}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    {new Date(act.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+
+                <div className="font-medium text-foreground">{act.personName}</div>
+                {act.notes && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed bg-secondary/30 p-1.5 rounded">
+                    "{act.notes}"
+                  </p>
+                )}
+                <div className="text-[10px] text-muted-foreground/80 flex items-center justify-between">
+                  <span>Logged by {act.userName}</span>
+                  {act.scheduledFollowUpAt && (
+                    <span className="text-amber-700 font-semibold">Next: {act.scheduledFollowUpAt}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </Card>
         </div>
       </div>
     </div>
