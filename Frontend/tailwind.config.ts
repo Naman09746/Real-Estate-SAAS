@@ -62,6 +62,30 @@ const config: Config = {
         "border-subtle": "var(--border-subtle)",
         input: "var(--input)",
         ring: "var(--ring)",
+        // Architectural Ledger Design Tokens
+        ink: {
+          DEFAULT: "#13161c",
+          hover: "#1e222b",
+          subtle: "#0b0d10",
+        },
+        paper: {
+          DEFAULT: "#f4f6f8",
+          subtle: "#eef1f2",
+          card: "#ffffff",
+        },
+        brass: {
+          DEFAULT: "#a9812e",
+          hover: "#937025",
+          light: "#fcf8ee",
+          border: "#e5cd97",
+        },
+        verdigris: {
+          DEFAULT: "#2d5a4c",
+          hover: "#23473c",
+          light: "#eef7f3",
+          border: "#b4ddce",
+        },
+        architecturalLine: "#d8dcdd",
       },
       borderRadius: {
         sm: "var(--radius-sm)",
@@ -74,9 +98,13 @@ const config: Config = {
         card: "0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05)",
         elevated: "0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05)",
         modal: "0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05)",
+        ledger: "0 2px 10px -2px rgba(19, 22, 28, 0.06), 0 1px 2px 0 rgba(19, 22, 28, 0.04)",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "Inter", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        sans: ["var(--font-sans)", "Inter", "system-ui", "sans-serif"],
+        serif: ["var(--font-serif)", "Fraunces", "Georgia", "serif"],
+        display: ["var(--font-serif)", "Fraunces", "Georgia", "serif"],
+        mono: ["var(--font-mono)", "IBM Plex Mono", "Courier New", "monospace"],
       },
     },
   },

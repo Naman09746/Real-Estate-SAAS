@@ -27,6 +27,7 @@ import {
   INITIAL_ACTIVITIES,
   INITIAL_TASKS,
 } from "@/lib/mock-data";
+import { toast } from "sonner";
 
 interface CRMContextType {
   currentUser: User;
@@ -276,13 +277,17 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       setTasks((prev) => [newTask, ...prev]);
     }
 
+    toast.success(`Logged ${type.toUpperCase()}: ${outcomeLabel || "Touchpoint recorded"}`);
     return true;
   };
 
   // Safe stage transition with unit & lead health synchronization
   const updateLeadStage = async (leadId: string, newStage: PipelineStage) => {
     const lead = leads.find((l) => l.id === leadId);
-    if (!lead) return false;
+    if (!lead) {
+      toast.error("Lead not found");
+      return false;
+    }
 
     setLeads((prev) =>
       prev.map((l) => {
@@ -342,6 +347,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    toast.success(`Advanced ${lead.personName} → ${newStage.replace("_", " ").toUpperCase()}`);
     return true;
   };
 
@@ -388,6 +394,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       ];
     });
 
+    toast.success(`Added new lead: ${newLead.personName}`);
     return newLead;
   };
 
@@ -398,6 +405,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (task) {
+      toast.success(`Task completed for ${task.personName}`);
       setLeads((prev) =>
         prev.map((l) =>
           l.id === task.leadId

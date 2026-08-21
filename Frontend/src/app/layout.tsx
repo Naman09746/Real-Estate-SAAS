@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Fraunces, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/context/auth-context";
 import { CRMProvider } from "@/context/crm-context";
+import { QueryProvider } from "@/components/providers/query-provider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -9,9 +11,22 @@ const inter = Inter({
   display: "swap",
 });
 
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-serif",
+  display: "swap",
+});
+
+const ibmPlexMono = IBM_Plex_Mono({
+  weight: ["400", "500", "600", "700"],
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "CallCRM — Enterprise Real Estate CRM",
-  description: "High-velocity multi-tenant CRM designed for Indian real estate sales teams.",
+  title: "Apex CallCRM — Architectural Real Estate Sales Command Center",
+  description: "High-velocity sales command center engineered for Indian luxury real estate developers and advisory desks.",
 };
 
 export default function RootLayout({
@@ -20,9 +35,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${fraunces.variable} ${ibmPlexMono.variable} h-full scroll-smooth`}
+    >
       <body className="min-h-full bg-background font-sans text-foreground antialiased flex flex-col">
-        <CRMProvider>{children}</CRMProvider>
+        <QueryProvider>
+          <AuthProvider>
+            <CRMProvider>{children}</CRMProvider>
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   );
