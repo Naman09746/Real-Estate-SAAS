@@ -12,9 +12,8 @@ import {
   ArrowRight, 
   Loader2, 
   AlertCircle, 
-  Eye, 
+  Eye,
   EyeOff,
-  Sparkles,
   CheckCircle2
 } from "lucide-react";
 
@@ -96,13 +95,6 @@ function LoginForm() {
     } finally {
       setGoogleLoading(false);
     }
-  };
-
-  const handleQuickDemoLogin = async (role: "boss" | "salesperson") => {
-    setLoading(true);
-    setErrorMessage(null);
-    const demoEmail = role === "boss" ? "vikram@apexrealty.in" : "rahul@apexrealty.in";
-    await signIn(demoEmail, "password123");
   };
 
   return (
@@ -264,38 +256,6 @@ function LoginForm() {
           )}
         </button>
       </form>
-
-      {/* 1-Click Demo Access Box */}
-      <div className="p-3.5 bg-muted/70 rounded-xl border border-border space-y-2 mt-4">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-          <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-          <span>Fast 1-Click Instant Preview:</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => handleQuickDemoLogin("boss")}
-            className="text-left px-2.5 py-1.5 bg-card hover:bg-background rounded-lg border border-border text-xs transition-colors flex items-center justify-between group"
-          >
-            <div>
-              <p className="font-medium text-foreground">Founder / Boss</p>
-              <p className="text-[10px] text-muted-foreground">Vikram Malhotra</p>
-            </div>
-            <ArrowRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition-transform group-hover:translate-x-0.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickDemoLogin("salesperson")}
-            className="text-left px-2.5 py-1.5 bg-card hover:bg-background rounded-lg border border-border text-xs transition-colors flex items-center justify-between group"
-          >
-            <div>
-              <p className="font-medium text-foreground">Top Sales Rep</p>
-              <p className="text-[10px] text-muted-foreground">Rahul (Gurgaon)</p>
-            </div>
-            <ArrowRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition-transform group-hover:translate-x-0.5" />
-          </button>
-        </div>
-      </div>
     </AuthCard>
   );
 }
