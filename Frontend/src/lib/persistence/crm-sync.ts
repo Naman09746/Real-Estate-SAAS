@@ -62,8 +62,12 @@ export function mapLeadRow(row: AnyRow): Lead {
     leadScore: num(row.lead_score),
     leadScoreLabel: (row.lead_score_label ?? "Warm") as Lead["leadScoreLabel"],
     dealHealth: (row.deal_health ?? "neutral") as Lead["dealHealth"],
+    dealHealthScore: typeof row.deal_health_score === "number" ? row.deal_health_score : 60,
     dealHealthReason: row.deal_health_reason ? str(row.deal_health_reason) : undefined,
-    recommendedAction: row.recommended_action ? str(row.recommended_action) : undefined,
+    dealHealthFactors: Array.isArray(row.deal_health_factors) ? row.deal_health_factors : [],
+    dealHealthRecommendedAction: row.deal_health_recommended_action ? str(row.deal_health_recommended_action) : undefined,
+    dealHealthCalculatedAt: row.deal_health_calculated_at ? str(row.deal_health_calculated_at) : undefined,
+    recommendedAction: (row.deal_health_recommended_action || row.recommended_action) ? str(row.deal_health_recommended_action || row.recommended_action) : undefined,
     configurationPreference: row.configuration_preference ? str(row.configuration_preference) : undefined,
     preferredFloor: row.preferred_floor ? str(row.preferred_floor) : undefined,
     facingPreference: row.facing_preference ? str(row.facing_preference) : undefined,
@@ -76,11 +80,15 @@ export function mapLeadRow(row: AnyRow): Lead {
     assignedUnitId: row.assigned_unit_id ? str(row.assigned_unit_id) : undefined,
     assignedUnitNumber: row.assigned_unit_number ? str(row.assigned_unit_number) : undefined,
     daysInStage: num(row.days_in_stage),
+    stageEnteredAt: row.stage_entered_at ? str(row.stage_entered_at) : undefined,
     lastActivityText: str(row.last_activity_text ?? "Lead created"),
     lastActivityAt: str(row.last_activity_at ?? row.created_at ?? new Date().toISOString()),
     nextFollowUpAt: row.next_follow_up_at ? str(row.next_follow_up_at) : undefined,
     followUpStatus: row.follow_up_status ?? "upcoming",
     lostAt: row.lost_at ? str(row.lost_at) : undefined,
+    lostReason: row.lost_reason ? str(row.lost_reason) : undefined,
+    lastResurrectedAt: row.last_resurrected_at ? str(row.last_resurrected_at) : undefined,
+    resurrectionCount: typeof row.resurrection_count === "number" ? row.resurrection_count : 0,
     createdAt: str(row.created_at ?? new Date().toISOString()),
   };
 }
@@ -124,8 +132,11 @@ export function leadToRow(lead: Partial<Lead>): AnyRow {
   set("lead_score", lead.leadScore);
   set("lead_score_label", lead.leadScoreLabel);
   set("deal_health", lead.dealHealth);
+  set("deal_health_score", lead.dealHealthScore ?? 60);
   set("deal_health_reason", lead.dealHealthReason || null);
-  set("recommended_action", lead.recommendedAction || null);
+  set("deal_health_factors", lead.dealHealthFactors || []);
+  set("deal_health_recommended_action", lead.dealHealthRecommendedAction || lead.recommendedAction || null);
+  set("recommended_action", lead.dealHealthRecommendedAction || lead.recommendedAction || null);
   set("configuration_preference", lead.configurationPreference || null);
   set("preferred_floor", lead.preferredFloor || null);
   set("facing_preference", lead.facingPreference || null);
@@ -143,6 +154,9 @@ export function leadToRow(lead: Partial<Lead>): AnyRow {
   set("next_follow_up_at", lead.nextFollowUpAt || null);
   set("follow_up_status", lead.followUpStatus);
   set("lost_at", lead.lostAt ?? null);
+  set("lost_reason", lead.lostReason || null);
+  set("last_resurrected_at", lead.lastResurrectedAt || null);
+  set("resurrection_count", lead.resurrectionCount);
   return row;
 }
 
@@ -159,7 +173,9 @@ export async function updateLeadRemote(leadId: string, patch: Partial<Lead>): Pr
 
 // ------------------------------------------------------------ Activities ----
 
-export function activityToRow(activity: Omit<Activity, "id"> & { id?: string }): AnyRow {
+export function activityToRow(
+  activity: Partial<Activity> & { userId: string; userName: string; personName: string; type: ActivityType }
+): AnyRow {
   return {
     lead_id: activity.leadId || null,
     project_id: activity.projectId || null,
@@ -212,7 +228,10 @@ export async function fetchActivities(): Promise<Activity[] | null> {
   return (data || []).map(mapActivityRow);
 }
 
-export async function insertActivityRemote(activity: Omit<Activity, "id">, orgId?: string): Promise<boolean> {
+export async function insertActivityRemote(
+  activity: Partial<Activity> & { userId: string; userName: string; personName: string; type: ActivityType },
+  orgId?: string
+): Promise<boolean> {
   const supabase = getSupabaseClient();
   if (!supabase) return false;
   // org_id is NOT NULL — without it every activity insert fails under RLS.
@@ -493,7 +512,7 @@ export function mapProjectRow(row: AnyRow, regionName?: string): Project {
   };
 }
 
-async function fetchProjects(): Promise<Project[] | null> {
+export async function fetchProjects(): Promise<Project[] | null> {
   const supabase = getSupabaseClient();
   if (!supabase) return null;
   const { data, error } = await supabase
@@ -508,7 +527,107 @@ async function fetchProjects(): Promise<Project[] | null> {
   return (data || []).map((row: AnyRow) => mapProjectRow(row, row.region?.name));
 }
 
-function mapRegionRow(row: AnyRow): Region {
+export async function insertProjectRemote(
+  p: { name: string; developer: string; location: string; regionId?: string; priceRange?: string; status?: string },
+  orgId: string
+): Promise<Project | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({
+      org_id: orgId,
+      name: p.name,
+      developer: p.developer,
+      location: p.location,
+      region_id: p.regionId || null,
+      price_range: p.priceRange || null,
+      status: p.status || "active",
+    })
+    .select(`*, region:region_id (name)`)
+    .single();
+
+  if (error || !data) {
+    console.error("[SYNC] Failed to insert project:", error?.code);
+    return null;
+  }
+  return mapProjectRow(data, data.region?.name);
+}
+
+export async function updateProjectRemote(projectId: string, patch: Partial<Project>): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  const updatePayload: Record<string, any> = {};
+  if (patch.name !== undefined) updatePayload.name = patch.name;
+  if (patch.developer !== undefined) updatePayload.developer = patch.developer;
+  if (patch.location !== undefined) updatePayload.location = patch.location;
+  if (patch.regionId !== undefined) updatePayload.region_id = patch.regionId;
+  if (patch.priceRange !== undefined) updatePayload.price_range = patch.priceRange;
+  if (patch.status !== undefined) updatePayload.status = patch.status;
+
+  const { error } = await supabase.from("projects").update(updatePayload).eq("id", projectId);
+  if (error) {
+    console.error("[SYNC] Failed to update project:", error.code);
+    return false;
+  }
+  return true;
+}
+
+export async function deleteProjectRemote(projectId: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  const { error } = await supabase.from("projects").delete().eq("id", projectId);
+  if (error) {
+    console.error("[SYNC] Failed to delete project:", error.code);
+    return false;
+  }
+  return true;
+}
+
+export async function insertUnitRemote(
+  unit: Omit<ProjectUnit, "id" | "orgId" | "projectName" | "sizeSqFt">,
+  orgId: string
+): Promise<ProjectUnit | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("project_units")
+    .insert({
+      org_id: orgId,
+      project_id: unit.projectId,
+      tower: unit.tower,
+      unit_number: unit.unitNumber,
+      floor: unit.floor,
+      configuration: unit.configuration,
+      super_area_sq_ft: unit.superAreaSqFt || 1500,
+      price: unit.price,
+      status: unit.status || "available",
+      facing: unit.facing || null,
+      assigned_lead_id: unit.assignedLeadId || null,
+      assigned_buyer_name: unit.assignedBuyerName || null,
+    })
+    .select(`*, project:project_id (name)`)
+    .single();
+
+  if (error || !data) {
+    console.error("[SYNC] Failed to insert unit:", error?.code);
+    return null;
+  }
+  return mapUnitRow(data, data.project?.name);
+}
+
+export async function deleteUnitRemote(unitId: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  const { error } = await supabase.from("project_units").delete().eq("id", unitId);
+  if (error) {
+    console.error("[SYNC] Failed to delete unit:", error.code);
+    return false;
+  }
+  return true;
+}
+
+export function mapRegionRow(row: AnyRow): Region {
   return {
     id: str(row.id),
     orgId: str(row.org_id),
@@ -517,7 +636,7 @@ function mapRegionRow(row: AnyRow): Region {
   };
 }
 
-async function fetchRegions(): Promise<Region[] | null> {
+export async function fetchRegions(): Promise<Region[] | null> {
   const supabase = getSupabaseClient();
   if (!supabase) return null;
   const { data, error } = await supabase.from("regions").select("*").order("name");
@@ -526,6 +645,52 @@ async function fetchRegions(): Promise<Region[] | null> {
     return null;
   }
   return (data || []).map(mapRegionRow);
+}
+
+export async function insertRegionRemote(r: { name: string; code: string }, orgId: string): Promise<Region | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("regions")
+    .insert({
+      org_id: orgId,
+      name: r.name,
+      code: r.code.toUpperCase(),
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    console.error("[SYNC] Failed to insert region:", error?.code);
+    return null;
+  }
+  return mapRegionRow(data);
+}
+
+export async function updateRegionRemote(regionId: string, patch: Partial<Region>): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  const updatePayload: Record<string, any> = {};
+  if (patch.name !== undefined) updatePayload.name = patch.name;
+  if (patch.code !== undefined) updatePayload.code = patch.code.toUpperCase();
+
+  const { error } = await supabase.from("regions").update(updatePayload).eq("id", regionId);
+  if (error) {
+    console.error("[SYNC] Failed to update region:", error.code);
+    return false;
+  }
+  return true;
+}
+
+export async function deleteRegionRemote(regionId: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  const { error } = await supabase.from("regions").delete().eq("id", regionId);
+  if (error) {
+    console.error("[SYNC] Failed to delete region:", error.code);
+    return false;
+  }
+  return true;
 }
 
 function mapProfileRow(row: AnyRow, regionName?: string): User {
@@ -544,7 +709,7 @@ function mapProfileRow(row: AnyRow, regionName?: string): User {
   };
 }
 
-async function fetchUsers(): Promise<User[] | null> {
+export async function fetchUsers(): Promise<User[] | null> {
   const supabase = getSupabaseClient();
   if (!supabase) return null;
   const { data, error } = await supabase

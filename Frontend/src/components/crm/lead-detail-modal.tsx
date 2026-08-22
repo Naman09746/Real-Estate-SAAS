@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { formatCurrencyINR, formatPhone } from "@/lib/utils";
 import { WhatsAppActionModal } from "@/components/crm/whatsapp-action-modal";
+import { toast } from "sonner";
 
 interface LeadDetailModalProps {
   lead: Lead | null;
@@ -65,6 +66,7 @@ export function LeadDetailModal({
   const [docType, setDocType] = React.useState<CRMDocument["type"]>("kyc");
   const [docUrl, setDocUrl] = React.useState("");
   const [isUploading, setIsUploading] = React.useState(false);
+  const [docFile, setDocFile] = React.useState<File | null>(null);
 
   if (!lead) return null;
 
@@ -80,21 +82,59 @@ export function LeadDetailModal({
 
   const handleUploadDoc = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!docTitle.trim()) return;
+    if (!docTitle.trim()) {
+      toast.error("Please enter a document title");
+      return;
+    }
 
     setIsUploading(true);
-    await uploadDocument({
-      title: docTitle.trim(),
-      type: docType,
-      leadId: lead.id,
-      projectId: lead.projectId,
-      fileUrl: docUrl.trim() || `https://storage.callcrm.in/vault/${docTitle.toLowerCase().replace(/\s+/g, "-")}.pdf`,
-    });
+    try {
+      if (docFile) {
+        // Real Storage Upload via /api/documents/upload
+        const formData = new FormData();
+        formData.append("file", docFile);
+        formData.append("title", docTitle.trim());
+        formData.append("type", docType);
+        formData.append("leadId", lead.id);
+        formData.append("projectId", lead.projectId);
 
-    setDocTitle("");
-    setDocUrl("");
-    setShowUploadDocForm(false);
-    setIsUploading(false);
+        const res = await fetch("/api/documents/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          toast.error(json.error?.message || "Failed to upload document to vault");
+          return;
+        }
+
+        await uploadDocument({
+          title: json.data.title,
+          type: json.data.type,
+          leadId: json.data.leadId,
+          projectId: json.data.projectId,
+          fileUrl: json.data.fileUrl,
+        });
+        toast.success(`Document "${docTitle}" saved to encrypted vault`);
+      } else {
+        await uploadDocument({
+          title: docTitle.trim(),
+          type: docType,
+          leadId: lead.id,
+          projectId: lead.projectId,
+          fileUrl: docUrl.trim() || "#",
+        });
+      }
+
+      setDocTitle("");
+      setDocUrl("");
+      setDocFile(null);
+      setShowUploadDocForm(false);
+    } catch {
+      toast.error("Network error during document upload");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const stages: { id: PipelineStage; label: string }[] = [
@@ -127,7 +167,7 @@ export function LeadDetailModal({
                   </DialogTitle>
                   <PipelineBadge stage={lead.stage} />
                   <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
-                  <DealHealthBadge health={lead.dealHealth} reason={lead.dealHealthReason} />
+                  <DealHealthBadge health={lead.dealHealth} score={lead.dealHealthScore} reason={lead.dealHealthReason} showScore />
                 </div>
                 <div className="text-xs text-muted-foreground font-mono flex items-center gap-2">
                   <span>{formatPhone(lead.phone)}</span>
@@ -169,34 +209,104 @@ export function LeadDetailModal({
             </div>
           </DialogHeader>
 
-        {/* 2. REAL ESTATE SALES CONTEXT: STRATEGY & SUGGESTED NEXT MOVE */}
+        {/* 2. DETERMINISTIC DEAL HEALTH & RISK INTELLIGENCE PANEL */}
+        <div className={`p-4 rounded-xl border space-y-3 text-xs ${
+          lead.dealHealth === "at_risk"
+            ? "border-red-300/80 bg-red-50/40 dark:bg-red-950/20"
+            : lead.dealHealth === "strong"
+            ? "border-emerald-300/80 bg-emerald-50/40 dark:bg-emerald-950/20"
+            : "border-border bg-secondary/30"
+        }`}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className={`h-4 w-4 ${
+                lead.dealHealth === "at_risk" ? "text-red-600 animate-pulse" : lead.dealHealth === "strong" ? "text-emerald-600" : "text-amber-600"
+              }`} />
+              <span className="font-bold text-xs uppercase tracking-wider text-foreground">
+                Deal Health & Risk Intelligence
+              </span>
+              <DealHealthBadge health={lead.dealHealth} score={lead.dealHealthScore} reason={lead.dealHealthReason} showScore />
+            </div>
+            <span className="text-[11px] font-mono text-muted-foreground">
+              {lead.dealHealthCalculatedAt ? `Calculated: ${new Date(lead.dealHealthCalculatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Automated Live Evaluation"}
+            </span>
+          </div>
+
+          {/* Health Score Meter */}
+          <div className="space-y-1.5 bg-card/80 p-3 rounded-lg border border-border">
+            <div className="flex justify-between items-center text-xs">
+              <span className="font-semibold text-foreground">Health Score: <strong className="font-mono">{lead.dealHealthScore ?? 60}/100</strong></span>
+              <span className="text-muted-foreground font-medium">{lead.dealHealthReason || "Standard deal velocity"}</span>
+            </div>
+            <div className="w-full bg-secondary rounded-full h-2.5 overflow-hidden">
+              <div
+                className={`h-2.5 rounded-full transition-all duration-500 ${
+                  (lead.dealHealthScore ?? 60) >= 80
+                    ? "bg-emerald-500"
+                    : (lead.dealHealthScore ?? 60) >= 50
+                    ? "bg-amber-500"
+                    : "bg-red-500"
+                }`}
+                style={{ width: `${Math.max(5, Math.min(100, lead.dealHealthScore ?? 60))}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Contributing Factors Breakdown */}
+          {lead.dealHealthFactors && lead.dealHealthFactors.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+                Contributing CRM Factors:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {lead.dealHealthFactors.map((f, idx) => (
+                  <span
+                    key={idx}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border ${
+                      f.impact > 0
+                        ? "bg-emerald-100/70 border-emerald-300 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        : "bg-red-100/70 border-red-300 text-red-900 dark:bg-red-950/40 dark:text-red-300"
+                    }`}
+                  >
+                    <span className="font-mono font-bold">{f.impact > 0 ? `+${f.impact}` : f.impact}</span>
+                    <span>{f.description}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recommended Next Action */}
+          <div className="p-2.5 rounded-lg bg-card border border-primary/30 space-y-1">
+            <span className="text-[10px] uppercase font-bold text-primary flex items-center gap-1">
+              <Sparkles className="h-3 w-3" />
+              Recommended Next Action:
+            </span>
+            <p className="text-foreground font-semibold leading-relaxed">
+              {lead.dealHealthRecommendedAction || lead.recommendedAction || lead.suggestedNextMove || "Contact the buyer today to maintain deal progression."}
+            </p>
+          </div>
+        </div>
+
+        {/* 3. REAL ESTATE SALES CONTEXT: STRATEGY & SUGGESTED NEXT MOVE */}
         <div className="p-4 rounded-xl border border-primary/20 bg-secondary/30 space-y-2.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-bold text-xs uppercase tracking-wider text-primary flex items-center gap-1.5">
               <Sparkles className="h-3.5 w-3.5" />
-              Real Estate Sales Strategy & Next Move
+              Real Estate Sales Strategy
             </span>
             <span className="text-[11px] font-mono text-muted-foreground">
               Follow-up: <strong>{lead.nextFollowUpAt || "Today"}</strong>
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div className="grid grid-cols-1 gap-3 pt-1">
             <div className="p-2.5 rounded-lg bg-card border border-border space-y-1">
               <span className="text-[10px] uppercase font-bold text-muted-foreground block">
                 Last Conversation Narrative:
               </span>
               <p className="text-foreground/90 font-medium leading-relaxed">
                 {lead.lastConversationSummary || lead.lastActivityText || "Initial inquiry captured."}
-              </p>
-            </div>
-
-            <div className="p-2.5 rounded-lg bg-card border border-primary/30 space-y-1">
-              <span className="text-[10px] uppercase font-bold text-primary block">
-                Recommended Action:
-              </span>
-              <p className="text-foreground font-semibold leading-relaxed">
-                {lead.suggestedNextMove || lead.recommendedAction || "Call customer to schedule next milestone."}
               </p>
             </div>
           </div>
@@ -398,14 +508,14 @@ export function LeadDetailModal({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="sm:col-span-2">
                   <label className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">
-                    Document Title
+                    Document Title *
                   </label>
                   <input
                     type="text"
                     required
                     value={docTitle}
                     onChange={(e) => setDocTitle(e.target.value)}
-                    placeholder="e.g. Aadhar Card / Pan Card / Token Cheque Copy"
+                    placeholder="e.g. Aadhar Card / PAN Card / Token Cheque Copy"
                     className="w-full h-8 px-2.5 rounded-md border border-input bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
@@ -426,6 +536,24 @@ export function LeadDetailModal({
                     <option value="other">Other Document</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">
+                  Select File (PDF, PNG, JPG, WebP - max 15MB)
+                </label>
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setDocFile(f);
+                    if (f && !docTitle) {
+                      setDocTitle(f.name.replace(/\.[^/.]+$/, ""));
+                    }
+                  }}
+                  className="w-full h-8 px-2 py-1 rounded-md border border-input bg-background text-xs text-foreground file:mr-2 file:h-6 file:px-2 file:rounded file:border-0 file:text-[11px] file:bg-primary/10 file:text-primary file:font-semibold"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-1">

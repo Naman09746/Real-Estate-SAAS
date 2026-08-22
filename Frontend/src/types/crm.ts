@@ -1,4 +1,4 @@
-export type UserRole = "boss" | "manager" | "salesperson";
+export type UserRole = "owner" | "admin" | "boss" | "manager" | "salesperson" | "closer";
 
 export interface Organization {
   id: string;
@@ -76,6 +76,8 @@ export interface ProjectUnit {
   assignedLeadPhone?: string;
   assignedBuyerName?: string;
   facing?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Project {
@@ -134,6 +136,12 @@ export interface PipelineStageConfig {
 export type DealHealth = "strong" | "neutral" | "at_risk";
 export type LeadScoreLabel = "Hot" | "Warm" | "Cold";
 
+export interface DealHealthFactor {
+  type: string;
+  impact: number;
+  description: string;
+}
+
 export interface Lead {
   id: string;
   orgId: string;
@@ -155,7 +163,11 @@ export interface Lead {
   leadScore: number; // e.g. 92
   leadScoreLabel: LeadScoreLabel; // "Hot" | "Warm" | "Cold"
   dealHealth: DealHealth; // "strong" | "neutral" | "at_risk"
+  dealHealthScore?: number; // 0 to 100
   dealHealthReason?: string; // e.g. "No activity for 4 days"
+  dealHealthFactors?: DealHealthFactor[];
+  dealHealthRecommendedAction?: string;
+  dealHealthCalculatedAt?: string;
   recommendedAction?: string; // e.g. "Send Tower C vs D floor-plan comparison"
   configurationPreference?: string; // e.g. "3 BHK + Servant"
   preferredFloor?: string; // e.g. "High floor (12 - 18)"
@@ -170,11 +182,15 @@ export interface Lead {
   assignedUnitId?: string;
   assignedUnitNumber?: string;
   daysInStage: number;
+  stageEnteredAt?: string;
   lastActivityText: string;
   lastActivityAt: string;
   nextFollowUpAt?: string;
   followUpStatus?: "due_today" | "upcoming" | "overdue" | "completed";
   lostAt?: string;
+  lostReason?: string;
+  lastResurrectedAt?: string;
+  resurrectionCount?: number;
   notes?: string;
   createdAt: string;
 }
@@ -253,4 +269,16 @@ export interface AuditLog {
   entityId?: string;
   details: string;
   timestamp: string;
+}
+
+export interface TeamInvitation {
+  id: string;
+  orgId: string;
+  email: string;
+  role: string;
+  regionId?: string;
+  regionName?: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expiresAt: string;
+  createdAt: string;
 }

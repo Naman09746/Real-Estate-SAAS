@@ -35,10 +35,11 @@ export function AreaTrendChart({
   const height = 220;
   const padding = { top: 20, right: 20, bottom: 30, left: 35 };
 
-  const maxVal = Math.max(...data.map((d) => d.leads), 90);
+  const maxVal = Math.max(...data.map((d) => Math.max(d.leads || 0, d.visits || 0)), 10);
 
   const getX = (idx: number) => {
-    return padding.left + (idx / (data.length - 1)) * (width - padding.left - padding.right);
+    if (data.length <= 1) return padding.left + (width - padding.left - padding.right) / 2;
+    return padding.left + (idx / Math.max(1, data.length - 1)) * (width - padding.left - padding.right);
   };
 
   const getY = (val: number) => {

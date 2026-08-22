@@ -37,6 +37,9 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
+*.tsbuildinfo
+*.lock
 Frontend/graphify-out/
+graphify-out/cache/
 Frontend/test-results/
 Frontend/playwright-report/

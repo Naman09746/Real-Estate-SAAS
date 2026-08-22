@@ -414,12 +414,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         localStorage.setItem(STORAGE_KEYS.ONBOARDING, JSON.stringify(updated));
       } catch {}
+      // Persist to database
+      fetch("/api/orgs/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customSettings: {
+            onboarding: updated,
+          },
+        }),
+      }).catch(() => {});
       return updated;
     });
   };
 
   const skipOnboarding = () => {
     setWorkflowStep("app");
+    fetch("/api/orgs/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customSettings: {
+          onboardingCompleted: true,
+        },
+      }),
+    }).catch(() => {});
   };
 
   const resetWorkflow = () => {

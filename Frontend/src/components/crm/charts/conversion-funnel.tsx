@@ -23,12 +23,20 @@ const DEFAULT_FUNNEL: FunnelStage[] = [
 
 export function ConversionFunnel({
   stages = DEFAULT_FUNNEL,
+  overallConversionPct,
   className,
 }: {
   stages?: FunnelStage[];
+  overallConversionPct?: number;
   className?: string;
 }) {
-  const maxCount = stages[0]?.count || 1;
+  const maxCount = Math.max(...stages.map((s) => s.count), 1);
+  const derivedOverall =
+    typeof overallConversionPct === "number"
+      ? overallConversionPct
+      : stages.length > 0 && stages[0].count > 0
+      ? Number(((stages[stages.length - 1].count / stages[0].count) * 100).toFixed(1))
+      : 0;
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -39,7 +47,7 @@ export function ConversionFunnel({
         </div>
         <div className="text-right">
           <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold block">Overall Conversion</span>
-          <span className="text-sm font-bold text-emerald-700 font-mono">7.2%</span>
+          <span className="text-sm font-bold text-emerald-700 font-mono">{derivedOverall}%</span>
         </div>
       </div>
 

@@ -110,13 +110,13 @@ Skip this entirely if you don't run Meta lead ads.
 
 ---
 
-## 5. 🟡 Payments — Stripe *or* Razorpay (pick one to start)
+## 5. 🟡 Payments & Billing — Stripe and Razorpay (Multi-Gateway + Sandbox)
 
-Powers: plan upgrades. Today checkout runs in **simulated mode** until keys exist; only signed webhook events ever change a subscription.
+Powers: multi-tier subscriptions, lead/seat quota synchronization, digital GST tax receipts, cancellation, and refund management.
 
-### Common (required before going live with payments)
+### Common Configuration
 ```env
-BILLING_WEBHOOK_SECRET=<any long random string — used to verify webhook signatures>
+BILLING_WEBHOOK_SECRET=<long random string — used for HMAC SHA-256 signature verification>
 ```
 
 ### Option A: Stripe ([dashboard.stripe.com](https://dashboard.stripe.com))
@@ -124,16 +124,37 @@ BILLING_WEBHOOK_SECRET=<any long random string — used to verify webhook signat
 STRIPE_SECRET_KEY=sk_test_...        # use sk_live_... in production
 STRIPE_WEBHOOK_SECRET=whsec_...      # optional alias for BILLING_WEBHOOK_SECRET
 ```
-Webhook endpoint to configure: `https://<your-domain>/api/billing/webhook`
-(listen to: `checkout.session.completed`, `invoice.payment_succeeded`, `customer.subscription.deleted`)
+Webhook endpoint: `https://<your-domain>/api/billing/webhook`
+(Events: `checkout.session.completed`, `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded`)
 
 ### Option B: Razorpay ([dashboard.razorpay.com](https://dashboard.razorpay.com))
 ```env
+RAZORPAY_KEY_ID=rzp_test_...
 RAZORPAY_KEY_SECRET=...
 ```
-Webhook endpoint: same URL, with signature verification enabled.
+Webhook endpoint: `https://<your-domain>/api/billing/webhook`
+(Events: `payment.captured`, `subscription.charged`, `subscription.cancelled`, `subscription.pending`, `refund.processed`)
 
-> Note: checkout session *creation* is stubbed (`501`) pending SDK integration — the webhook processor is fully built, fail-closed, idempotent, and tenant-resolving.
+### Local Sandbox Mode
+When provider secret keys are absent, CallCRM automatically uses **Secure Sandbox Mode**, generating cryptographically signed test checkout tokens and executing full server-side database lifecycle state transitions, invoice creations, and quota triggers without faking UI state.
+
+---
+
+### Billing API Endpoints
+
+| Method | Endpoint | Authorization | Description |
+|---|---|---|---|
+| `POST` | `/api/billing/checkout` | Manager/Owner | Initiate provider checkout session |
+| `POST` | `/api/billing/webhook` | Verified HMAC Signature | Ingest provider events and transition subscriptions |
+| `GET` | `/api/billing/subscription` | Authenticated User | Get current subscription, plan limits, and real-time usage meters |
+| `POST` | `/api/billing/cancel` | Manager/Owner | Schedule cancellation at period end or cancel immediately |
+| `POST` | `/api/billing/reactivate` | Manager/Owner | Restore auto-renewal on scheduled cancellations |
+| `POST` | `/api/billing/refunds` | Manager/Owner | Process full or partial refunds for paid invoices |
+| `GET` | `/api/billing/refunds` | Authenticated User | List all organization refund records |
+| `GET` | `/api/billing/invoices` | Authenticated User | List billing invoice history |
+| `GET` | `/api/billing/invoices/:id/receipt` | Authenticated User | Download GST-ready tax invoice receipt |
+| `POST` | `/api/billing/customer` | Manager/Owner | Update legal entity name, Indian GSTIN, and billing address |
+| `POST` | `/api/billing/sandbox-confirm` | Manager/Owner (Signed token) | Authorize and confirm sandbox test checkout sessions |
 
 ---
 

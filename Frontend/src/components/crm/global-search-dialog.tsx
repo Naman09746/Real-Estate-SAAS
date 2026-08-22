@@ -237,7 +237,7 @@ export function GlobalSearchDialog({
     }
 
     return list;
-  }, [query, leads, projects, units, onNavigateTab, onOpenCreateLead, onOpenQuickLog, onSelectLead, setSelectedProjectId]);
+  }, [query, leads, projects, units, onNavigateTab, onOpenCreateLead, onOpenQuickLog, onSelectLead, setSelectedProjectId, onOpenChange]);
 
   // Handle keyboard navigation (Arrow Up, Down, Enter)
   const handleKeyDown = (e: React.KeyboardEvent) => {

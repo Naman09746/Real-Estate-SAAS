@@ -65,12 +65,23 @@ export const createActivitySchema = z.object({
 
 // 3b. Lost-Lead Resurrection Scan Schema
 export const resurrectScanSchema = z.object({
+  leadId: idSchema.optional().nullable(),
   daysThreshold: z
     .number()
     .int("daysThreshold must be an integer")
     .min(1, "daysThreshold must be at least 1 day")
     .max(365, "daysThreshold cannot exceed 365 days")
     .default(14),
+  minScore: z.number().int().min(0).max(100).default(60),
+  limit: z.number().int().min(1).max(100).default(20),
+  force: z.boolean().default(false),
+});
+
+export const executeResurrectionSchema = z.object({
+  leadId: idSchema.optional(),
+  leadIds: z.array(idSchema).optional(),
+  unitId: idSchema.optional().nullable(),
+  pitch: z.string().max(2000).optional(),
 });
 
 // 4. Create Task Schema
@@ -161,4 +172,137 @@ export const aiAgentQualifySchema = z.object({
   intentLevel: z.enum(["Hot", "Warm", "Cold"]),
   buyingSignals: z.array(z.string()),
   recommendedAction: z.string(),
+});
+
+// 8. Projects Schemas
+export const createProjectSchema = z.object({
+  name: z.string().min(2, "Project name must be at least 2 characters").max(150),
+  developer: z.string().min(2, "Developer name is required").max(150),
+  location: z.string().min(2, "Location is required").max(200),
+  regionId: idSchema.optional().nullable(),
+  priceRange: z.string().max(100).optional(),
+  status: z.enum(["active", "launching_soon", "completed"]).default("active"),
+});
+
+export const updateProjectSchema = createProjectSchema.partial();
+
+// 9. Project Units Schemas
+export const createProjectUnitSchema = z.object({
+  projectId: idSchema,
+  tower: z.string().min(1, "Tower identifier required").max(50),
+  unitNumber: z.string().min(1, "Unit number required").max(50),
+  floor: z.number().int().min(-5).max(200),
+  configuration: z.string().min(2).max(100),
+  superAreaSqFt: z.number().positive().max(100_000),
+  price: z.number().positive().max(10_000_000_000),
+  status: z.enum(["available", "hold", "site_visit", "negotiation", "booked", "sold"]).default("available"),
+  facing: z.string().max(50).optional().nullable(),
+  assignedLeadId: idSchema.optional().nullable(),
+  assignedBuyerName: z.string().max(150).optional().nullable(),
+});
+
+export const updateProjectUnitSchema = createProjectUnitSchema.partial();
+
+export const bulkImportUnitsSchema = z.object({
+  projectId: idSchema,
+  units: z.array(createProjectUnitSchema.omit({ projectId: true })).min(1).max(500),
+});
+
+// 10. Regions Schemas
+export const createRegionSchema = z.object({
+  name: z.string().min(2, "Region name required").max(100),
+  code: z.string().min(2, "Region code required").max(10).toUpperCase(),
+});
+
+export const updateRegionSchema = createRegionSchema.partial();
+
+// 11. Team Invitations & Roles Schemas
+export const createInvitationSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  role: z.enum(["owner", "manager", "salesperson", "closer", "boss", "admin"]).default("salesperson"),
+  regionId: idSchema.optional().nullable(),
+});
+
+export const updateUserRoleSchema = z.object({
+  role: z.enum(["owner", "manager", "salesperson", "closer", "boss", "admin"]),
+  regionId: idSchema.optional().nullable(),
+});
+
+// 12. Organization Settings Schema
+export const updateOrgSettingsSchema = z.object({
+  name: z.string().min(2).max(150).optional(),
+  reactivationDays: z.number().int().min(1).max(365).optional(),
+  customSettings: z.record(z.string(), z.any()).optional(),
+});
+
+// 13. CSV Lead Import Schemas
+export const importLeadRowSchema = z.object({
+  personName: z.string().min(2).max(100),
+  phone: phoneSchema,
+  email: z.string().email().optional().or(z.literal("")),
+  budget: z.number().positive().max(10_000_000_000).default(10000000),
+  projectId: idSchema.optional().nullable(),
+  projectName: z.string().optional().nullable(),
+  stage: z.enum(["new", "contacted", "qualified", "site_visit", "negotiation", "won", "lost"]).default("new"),
+  source: z.string().max(100).default("CSV Import"),
+  configurationPreference: z.string().max(100).optional().nullable(),
+  preferredFloor: z.string().max(50).optional().nullable(),
+  facingPreference: z.string().max(50).optional().nullable(),
+});
+
+export const importLeadsBatchSchema = z.object({
+  leads: z.array(importLeadRowSchema).min(1).max(500),
+});
+
+// 14. Document Schema
+export const createDocumentSchema = z.object({
+  projectId: idSchema.optional().nullable(),
+  leadId: idSchema.optional().nullable(),
+  title: z.string().min(2).max(200),
+  fileUrl: z.string().min(5).max(1000),
+  type: z.enum(["brochure", "floor_plan", "cost_sheet", "kyc", "agreement", "photo", "other"]).default("brochure"),
+});
+
+// 15. Billing Schemas
+export const createCheckoutSessionSchema = z.object({
+  planId: z.enum(["starter", "growth", "enterprise"]),
+  billingCycle: z.enum(["monthly", "yearly"]).default("monthly"),
+  successUrl: z.string().url().max(500).optional(),
+  cancelUrl: z.string().url().max(500).optional(),
+});
+
+export const cancelSubscriptionSchema = z.object({
+  reason: z.string().max(500).optional(),
+  cancelAtPeriodEnd: z.boolean().default(true),
+});
+
+export const reactivateSubscriptionSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
+export const createRefundSchema = z.object({
+  invoiceId: idSchema,
+  amount: z.number().positive("Refund amount must be greater than zero"),
+  reason: z.string().min(3, "Reason required for refund").max(500),
+});
+
+export const updateBillingProfileSchema = z.object({
+  legalName: z.string().max(150).optional(),
+  gstin: z
+    .string()
+    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, "Invalid Indian GSTIN format")
+    .optional()
+    .or(z.literal("")),
+  billingEmail: z.string().email("Invalid billing email").optional().or(z.literal("")),
+  billingPhone: phoneSchema.optional(),
+  billingAddress: z
+    .object({
+      line1: z.string().max(150).optional(),
+      line2: z.string().max(150).optional(),
+      city: z.string().max(100).optional(),
+      state: z.string().max(100).optional(),
+      postalCode: z.string().max(20).optional(),
+      country: z.string().max(50).default("IN"),
+    })
+    .optional(),
 });

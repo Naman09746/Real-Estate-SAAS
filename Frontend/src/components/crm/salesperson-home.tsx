@@ -83,7 +83,11 @@ export function SalespersonHome({
           let score = 0;
           if (lead.followUpStatus === "overdue") score += 500;
           if (lead.stage === "site_visit") score += 400;
-          if (lead.dealHealth === "at_risk") score += 300;
+          if (lead.dealHealth === "at_risk") {
+            score += 350 + (100 - (lead.dealHealthScore ?? 50));
+          } else if (lead.dealHealth === "strong") {
+            score += (lead.dealHealthScore ?? 80);
+          }
           if (lead.stage === "negotiation") score += 250;
           if (lead.leadScore >= 90) score += 200;
           if (lead.followUpStatus === "due_today") score += 150;
@@ -263,7 +267,7 @@ export function SalespersonHome({
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-base text-foreground">{lead.personName}</span>
                         <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
-                        <DealHealthBadge health={lead.dealHealth} reason={lead.dealHealthReason} />
+                        <DealHealthBadge health={lead.dealHealth} score={lead.dealHealthScore} reason={lead.dealHealthReason} showScore />
                         <PipelineBadge stage={lead.stage} />
                       </div>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2 font-mono">

@@ -15,6 +15,7 @@ import {
   CallOutcome,
   ActivityType,
   CRMDocument,
+  TeamInvitation,
 } from "@/types/crm";
 import {
   INITIAL_REGIONS,
@@ -35,6 +36,12 @@ import {
   fetchLeads,
   fetchTasks,
   fetchActivities,
+  fetchProjects,
+  fetchUnits,
+  fetchRegions,
+  fetchUsers,
+  fetchDocuments,
+  fetchPeople,
   mapLeadRow,
   leadToRow,
   updateLeadRemote,
@@ -86,7 +93,10 @@ interface CRMContextType {
   }) => Promise<boolean>;
 
   updateLeadStage: (leadId: string, stage: PipelineStage) => Promise<boolean>;
-  createLead: (lead: Omit<Lead, "id" | "orgId" | "createdAt" | "lastActivityAt" | "lastActivityText">) => Promise<Lead>;
+  createLead: (
+    lead: Omit<Lead, "id" | "orgId" | "createdAt" | "lastActivityAt" | "lastActivityText" | "leadScore" | "leadScoreLabel" | "dealHealth" | "daysInStage"> &
+      Partial<Pick<Lead, "leadScore" | "leadScoreLabel" | "dealHealth" | "daysInStage">>
+  ) => Promise<Lead>;
   completeTask: (taskId: string) => void;
   updateUnitStatus: (unitId: string, status: UnitStatus, leadId?: string, buyerName?: string) => Promise<boolean>;
   assignUnitToLead: (leadId: string, unitId: string) => Promise<boolean>;
@@ -100,6 +110,25 @@ interface CRMContextType {
 
   // Lost Lead Reactivation Action
   reactivateLead: (leadId: string, customPitch?: string) => Promise<boolean>;
+
+  // Project & Unit CRUD
+  createProject: (p: { name: string; developer: string; location: string; regionId?: string; priceRange?: string; status?: "active" | "launching_soon" | "completed" }) => Promise<Project | null>;
+  updateProject: (id: string, patch: Partial<Project>) => Promise<boolean>;
+  deleteProject: (id: string) => Promise<boolean>;
+  createUnit: (u: Omit<ProjectUnit, "id" | "orgId" | "projectName" | "sizeSqFt">) => Promise<ProjectUnit | null>;
+  updateUnit: (unitId: string, patch: Partial<ProjectUnit>) => Promise<boolean>;
+  deleteUnit: (unitId: string, projectId: string) => Promise<boolean>;
+
+  // Region CRUD
+  createRegion: (r: { name: string; code: string }) => Promise<Region | null>;
+  updateRegion: (id: string, patch: Partial<Region>) => Promise<boolean>;
+  deleteRegion: (id: string) => Promise<boolean>;
+
+  // Team Invitations & Role Management
+  invitations: TeamInvitation[];
+  inviteTeamMember: (email: string, role: string, regionId?: string) => Promise<{ inviteToken?: string; inviteUrl?: string } | null>;
+  revokeInvitation: (inviteId: string) => Promise<boolean>;
+  updateUserRole: (userId: string, role: string, regionId?: string) => Promise<boolean>;
 }
 
 const CRMContext = React.createContext<CRMContextType | undefined>(undefined);
@@ -137,6 +166,8 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     return INITIAL_USERS[0]; // demo mode only
   }, [authUser, currentOrgId]);
 
+  const [invitations, setInvitations] = React.useState<TeamInvitation[]>([]);
+
   // --------------------------------------------------------------------
   // Hydration: load live tenant data once per authenticated session, then
   // keep leads in sync across sessions/devices via a realtime channel.
@@ -157,15 +188,26 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setCurrentOrgId(data.orgId || "");
-      setRegions(data.regions.length ? data.regions : INITIAL_REGIONS);
-      setUsers(data.users.length ? data.users : INITIAL_USERS);
-      setProjects(data.projects);
-      setUnits(data.units);
-      setPeople(data.people);
       setLeads(data.leads);
       setActivities(data.activities);
       setTasks(data.tasks);
       setDocuments(data.documents);
+      setProjects(data.projects);
+      setRegions(data.regions.length ? data.regions : INITIAL_REGIONS);
+      setUnits(data.units);
+      setPeople(data.people);
+      setUsers(data.users.length ? data.users : INITIAL_USERS);
+
+      // Load team invitations
+      try {
+        const invRes = await fetch("/api/team/invitations");
+        if (invRes.ok) {
+          const json = await invRes.json();
+          if (json.success && !cancelled) setInvitations(json.data);
+        }
+      } catch {
+        // non-blocking
+      }
 
       // Realtime: any change from ANY session/device triggers a debounced
       // refetch per entity — simple, correct, and avoids patch-order bugs.
@@ -203,6 +245,26 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
             { event: "*", schema: "public", table: "activities" },
             debouncedRefetch(fetchActivities, (rows) => setActivities(rows))
           )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "projects" },
+            debouncedRefetch(fetchProjects, (rows) => setProjects(rows))
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "project_units" },
+            debouncedRefetch(fetchUnits, (rows) => setUnits(rows))
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "regions" },
+            debouncedRefetch(fetchRegions, (rows) => setRegions(rows))
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "profiles" },
+            debouncedRefetch(fetchUsers, (rows) => setUsers(rows))
+          )
           .subscribe();
       }
     })();
@@ -212,7 +274,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       if (refetchTimer) clearTimeout(refetchTimer);
       channel?.unsubscribe();
     };
-  }, [authUser?.id, authLoading]);
+  }, [authUser, authLoading]);
 
   // Surface writes that exhausted their retry budget — real potential loss.
   React.useEffect(() => {
@@ -568,7 +630,11 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
   }, [leads, currentUser.id, currentUser.orgId, currentUser.name, syncRemote]);
 
   const createLead = React.useCallback(async (
-    leadData: Omit<Lead, "id" | "orgId" | "createdAt" | "lastActivityAt" | "lastActivityText">
+    leadData: Omit<
+      Lead,
+      "id" | "orgId" | "createdAt" | "lastActivityAt" | "lastActivityText" | "leadScore" | "leadScoreLabel" | "dealHealth" | "daysInStage"
+    > &
+      Partial<Pick<Lead, "leadScore" | "leadScoreLabel" | "dealHealth" | "daysInStage">>
   ) => {
     const normalizedPhone = normalizePhone(leadData.phone);
 
@@ -612,6 +678,9 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
             orgId: currentOrgId,
             personId: personDbId,
             phoneNormalized: normalizedPhone,
+            leadScore: leadData.leadScore ?? 85,
+            leadScoreLabel: leadData.leadScoreLabel ?? "Hot",
+            dealHealth: leadData.dealHealth ?? "strong",
             daysInStage: 0,
             lastActivityText: existingPersonRow
               ? `Linked to master contact ${existingPersonRow.name}`
@@ -1038,10 +1107,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
               ...l,
               stage: "contacted",
               daysInStage: 0,
-              dealHealth: "strong",
-              dealHealthReason: "Reactivated via automated speed-to-lead engine",
-              lastActivityText: "Reactivated: New project outreach initiated",
+              lastActivityText: "Reactivated: New inventory outreach initiated",
               lastActivityAt: nowIso,
+              lastResurrectedAt: nowIso,
+              resurrectionCount: (l.resurrectionCount || 0) + 1,
               nextFollowUpAt: "Today, 12:00 PM",
               followUpStatus: "due_today",
               lostAt: undefined,
@@ -1060,7 +1129,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       userName: currentUser.name,
       type: "stage_change",
       outcomeLabel: "Lead Reactivated",
-      notes: customPitch || "Reactivated lead with new high-conviction luxury inventory pitch.",
+      notes: customPitch || "Reactivated lead with multi-factor matched inventory pitch.",
       createdAt: nowIso,
     };
     setActivities((prev) => [reactivationAct, ...prev]);
@@ -1088,10 +1157,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         updateLeadRemote(leadId, {
           stage: "contacted",
           daysInStage: 0,
-          dealHealth: "strong",
-          dealHealthReason: "Reactivated via automated speed-to-lead engine",
-          lastActivityText: "Reactivated: New project outreach initiated",
+          lastActivityText: "Reactivated: New inventory outreach initiated",
           lastActivityAt: nowIso,
+          lastResurrectedAt: nowIso,
+          resurrectionCount: (lead.resurrectionCount || 0) + 1,
           nextFollowUpAt: "Today, 12:00 PM",
           followUpStatus: "due_today",
         })
@@ -1106,6 +1175,325 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads, currentUser.id, currentUser.orgId, currentUser.name, syncRemote]);
+
+  // Project CRUD Actions
+  const createProject = React.useCallback(
+    async (p: { name: string; developer: string; location: string; regionId?: string; priceRange?: string; status?: "active" | "launching_soon" | "completed" }) => {
+      try {
+        const res = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(p),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          toast.error(json.error?.message || "Failed to create project");
+          return null;
+        }
+        const created = json.data;
+        const mappedProject: Project = {
+          id: created.id,
+          orgId: created.org_id,
+          name: created.name,
+          developer: created.developer,
+          location: created.location,
+          regionId: created.region_id,
+          regionName: regions.find((r) => r.id === created.region_id)?.name || "General Region",
+          priceRange: created.price_range || "Price on Request",
+          status: created.status,
+          activeLeadsCount: 0,
+          siteVisitsCount: 0,
+          totalUnits: 0,
+          availableUnitsCount: 0,
+          bookedUnitsCount: 0,
+        };
+        setProjects((prev) => [mappedProject, ...prev]);
+        toast.success(`Project "${mappedProject.name}" created successfully`);
+        return mappedProject;
+      } catch {
+        toast.error("Network error creating project");
+        return null;
+      }
+    },
+    [regions]
+  );
+
+  const updateProject = React.useCallback(async (id: string, patch: Partial<Project>) => {
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to update project");
+        return false;
+      }
+      setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+      toast.success("Project updated successfully");
+      return true;
+    } catch {
+      toast.error("Network error updating project");
+      return false;
+    }
+  }, []);
+
+  const deleteProject = React.useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to delete project");
+        return false;
+      }
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      setUnits((prev) => prev.filter((u) => u.projectId !== id));
+      toast.success("Project deleted successfully");
+      return true;
+    } catch {
+      toast.error("Network error deleting project");
+      return false;
+    }
+  }, []);
+
+  // Unit CRUD Actions
+  const createUnit = React.useCallback(
+    async (u: Omit<ProjectUnit, "id" | "orgId" | "projectName" | "sizeSqFt">) => {
+      try {
+        const res = await fetch(`/api/projects/${u.projectId}/units`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(u),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          toast.error(json.error?.message || "Failed to create unit");
+          return null;
+        }
+        const proj = projects.find((p) => p.id === u.projectId);
+        const createdUnit: ProjectUnit = {
+          id: json.data.id,
+          orgId: json.data.org_id,
+          projectId: json.data.project_id,
+          projectName: proj?.name || "",
+          tower: json.data.tower,
+          unitNumber: json.data.unit_number,
+          floor: json.data.floor,
+          configuration: json.data.configuration,
+          sizeSqFt: json.data.super_area_sq_ft,
+          superAreaSqFt: json.data.super_area_sq_ft,
+          price: json.data.price,
+          status: json.data.status,
+          facing: json.data.facing || undefined,
+          assignedLeadId: json.data.assigned_lead_id || undefined,
+          assignedBuyerName: json.data.assigned_buyer_name || undefined,
+        };
+        setUnits((prev) => [createdUnit, ...prev]);
+        toast.success(`Unit ${createdUnit.tower}-${createdUnit.unitNumber} added to inventory`);
+        return createdUnit;
+      } catch {
+        toast.error("Network error creating unit");
+        return null;
+      }
+    },
+    [projects]
+  );
+
+  const updateUnit = React.useCallback(
+    async (unitId: string, patch: Partial<ProjectUnit>) => {
+      const existingUnit = units.find((u) => u.id === unitId);
+      if (!existingUnit) return false;
+      try {
+        const res = await fetch(`/api/projects/${existingUnit.projectId}/units/${unitId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          toast.error(json.error?.message || "Failed to update unit");
+          return false;
+        }
+        setUnits((prev) => prev.map((u) => (u.id === unitId ? { ...u, ...patch } : u)));
+        toast.success("Unit updated successfully");
+        return true;
+      } catch {
+        toast.error("Network error updating unit");
+        return false;
+      }
+    },
+    [units]
+  );
+
+  const deleteUnit = React.useCallback(async (unitId: string, projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/units/${unitId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to delete unit");
+        return false;
+      }
+      setUnits((prev) => prev.filter((u) => u.id !== unitId));
+      toast.success("Unit deleted from inventory");
+      return true;
+    } catch {
+      toast.error("Network error deleting unit");
+      return false;
+    }
+  }, []);
+
+  // Region CRUD Actions
+  const createRegion = React.useCallback(async (r: { name: string; code: string }) => {
+    try {
+      const res = await fetch("/api/regions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(r),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to create region");
+        return null;
+      }
+      const newReg: Region = {
+        id: json.data.id,
+        orgId: json.data.org_id,
+        name: json.data.name,
+        code: json.data.code,
+        activeLeadsCount: 0,
+      };
+      setRegions((prev) => [...prev, newReg]);
+      toast.success(`Regional hub "${newReg.name}" created`);
+      return newReg;
+    } catch {
+      toast.error("Network error creating region");
+      return null;
+    }
+  }, []);
+
+  const updateRegion = React.useCallback(async (id: string, patch: Partial<Region>) => {
+    try {
+      const res = await fetch(`/api/regions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to update region");
+        return false;
+      }
+      setRegions((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+      toast.success("Region updated");
+      return true;
+    } catch {
+      toast.error("Network error updating region");
+      return false;
+    }
+  }, []);
+
+  const deleteRegion = React.useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/regions/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to delete region");
+        return false;
+      }
+      setRegions((prev) => prev.filter((r) => r.id !== id));
+      toast.success("Region removed");
+      return true;
+    } catch {
+      toast.error("Network error deleting region");
+      return false;
+    }
+  }, []);
+
+  // Team Invitations & Role Management
+  const inviteTeamMember = React.useCallback(async (email: string, role: string, regionId?: string) => {
+    try {
+      const res = await fetch("/api/team/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, role, regionId }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to send invitation");
+        return null;
+      }
+      const newInvite: TeamInvitation = {
+        id: json.data.id,
+        orgId: json.data.orgId,
+        email: json.data.email,
+        role: json.data.role,
+        regionId: json.data.regionId,
+        regionName: json.data.regionName,
+        status: json.data.status,
+        expiresAt: json.data.expiresAt,
+        createdAt: json.data.createdAt,
+      };
+      setInvitations((prev) => [newInvite, ...prev]);
+      toast.success(`Invitation generated for ${email}`);
+      return { inviteToken: json.data.inviteToken, inviteUrl: json.data.inviteUrl };
+    } catch {
+      toast.error("Network error sending invitation");
+      return null;
+    }
+  }, []);
+
+  const revokeInvitation = React.useCallback(async (inviteId: string) => {
+    try {
+      const res = await fetch(`/api/team/invitations/${inviteId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "Failed to revoke invitation");
+        return false;
+      }
+      setInvitations((prev) => prev.filter((inv) => inv.id !== inviteId));
+      toast.success("Invitation revoked");
+      return true;
+    } catch {
+      toast.error("Network error revoking invitation");
+      return false;
+    }
+  }, []);
+
+  const updateUserRole = React.useCallback(
+    async (userId: string, role: string, regionId?: string) => {
+      try {
+        const res = await fetch(`/api/team/members/${userId}/role`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role, regionId }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          toast.error(json.error?.message || "Failed to update member role");
+          return false;
+        }
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === userId
+              ? {
+                  ...u,
+                  role: role as any,
+                  regionId: regionId ?? u.regionId,
+                  regionName: regionId ? regions.find((r) => r.id === regionId)?.name : u.regionName,
+                }
+              : u
+          )
+        );
+        toast.success("Team member role updated");
+        return true;
+      } catch {
+        toast.error("Network error updating role");
+        return false;
+      }
+    },
+    [regions]
+  );
 
   // Memoized context value: prevents the entire consumer tree (~46 edges)
   // from re-rendering on every keystroke/mutation anywhere in the app.
@@ -1144,6 +1532,19 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       uploadDocument,
       deleteDocument,
       reactivateLead,
+      createProject,
+      updateProject,
+      deleteProject,
+      createUnit,
+      updateUnit,
+      deleteUnit,
+      createRegion,
+      updateRegion,
+      deleteRegion,
+      invitations,
+      inviteTeamMember,
+      revokeInvitation,
+      updateUserRole,
     }),
     [
       currentUser,
@@ -1179,6 +1580,19 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       uploadDocument,
       deleteDocument,
       reactivateLead,
+      createProject,
+      updateProject,
+      deleteProject,
+      createUnit,
+      updateUnit,
+      deleteUnit,
+      createRegion,
+      updateRegion,
+      deleteRegion,
+      invitations,
+      inviteTeamMember,
+      revokeInvitation,
+      updateUserRole,
     ]
   );
 

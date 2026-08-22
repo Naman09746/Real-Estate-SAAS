@@ -98,17 +98,35 @@ export default function ChoosePlanPage() {
     setShowCheckoutModal(true);
   };
 
-  const handleSimulatePayment = () => {
+  const handleSimulatePayment = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      setPaymentSuccess(true);
-      selectPlan(selectedPlanId, billingCycle);
+    try {
+      // Call real checkout or trial activation
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: selectedPlanId,
+          billingCycle: billingCycle,
+        }),
+      });
 
-      setTimeout(() => {
-        router.push("/onboarding");
-      }, 1200);
-    }, 1500);
+      const json = await res.json();
+      if (res.ok && json.success && json.data.checkoutUrl) {
+        selectPlan(selectedPlanId, billingCycle);
+        window.location.href = json.data.checkoutUrl;
+        return;
+      }
+    } catch {
+      // fallback
+    }
+
+    // Free Trial / Local Fallback
+    selectPlan(selectedPlanId, billingCycle);
+    setPaymentSuccess(true);
+    setTimeout(() => {
+      router.push("/onboarding");
+    }, 1000);
   };
 
   return (

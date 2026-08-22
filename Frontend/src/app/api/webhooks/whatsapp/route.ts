@@ -7,13 +7,15 @@ import {
 } from "@/lib/server/api-security";
 import { whatsappWebhookSchema } from "@/lib/server/validations";
 import { getServiceRoleClient, isLiveSupabaseAvailable } from "@/lib/server/supabase-server";
+import { ingestInboundLead } from "@/lib/server/lead-ingestion";
+import { normalizePhone } from "@/lib/utils";
+import { createNotification } from "@/lib/server/notifications";
 
-// FAIL CLOSED: both tokens are mandatory. No hardcoded fallbacks.
 const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "";
 const WHATSAPP_APP_SECRET = process.env.WHATSAPP_APP_SECRET || "";
 
 const MAX_PAYLOAD_BYTES = 64 * 1024;
-const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60; // reject replays older than 5 minutes
+const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60; // 5 minutes
 
 function isFreshWebhook(timestampSeconds: string | undefined): boolean {
   if (!timestampSeconds) return false;
@@ -23,20 +25,12 @@ function isFreshWebhook(timestampSeconds: string | undefined): boolean {
   return Math.abs(now - ts) <= TIMESTAMP_TOLERANCE_SECONDS;
 }
 
-type ResolvedOrg = { id: string } | null;
+function senderNameSafe(name: string): string {
+  return truncate(name.trim(), 100) || "WhatsApp Contact";
+}
 
-async function resolveOrgForSource(
-  supabase: any,
-  provider: "whatsapp",
-  externalId: string
-): Promise<ResolvedOrg> {
-  const { data } = await supabase
-    .from("webhook_sources")
-    .select("org_id")
-    .eq("provider", provider)
-    .eq("external_id", externalId)
-    .maybeSingle();
-  return data ? { id: data.org_id } : null;
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 // GET /api/webhooks/whatsapp - Meta Webhook Challenge Handshake
@@ -58,9 +52,8 @@ export async function GET(req: NextRequest) {
   return apiError("Verification token mismatch", 403, "FORBIDDEN");
 }
 
-// POST /api/webhooks/whatsapp - Inbound Message Receiver
+// POST /api/webhooks/whatsapp - Inbound WhatsApp Message Ingestion Pipeline
 export async function POST(req: NextRequest) {
-  // FAIL CLOSED: unsigned processing is never allowed.
   if (!WHATSAPP_APP_SECRET) {
     console.error("[WHATSAPP_CONFIG_ERROR] WHATSAPP_APP_SECRET is not set");
     return apiError(
@@ -87,7 +80,6 @@ export async function POST(req: NextRequest) {
     const parsed = whatsappWebhookSchema.safeParse(jsonBody);
 
     if (!parsed.success) {
-      // Return 200 to acknowledge Meta even if non-message change event
       return apiSuccess({ status: "ignored_non_message_event" }, 200);
     }
 
@@ -114,21 +106,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // TENANT RESOLUTION: the sending phone_number_id must be mapped to an org.
+    // TENANT RESOLUTION: phone_number_id mapping in webhook_sources
     const phoneNumberId = entry?.metadata?.phone_number_id;
-    const org = phoneNumberId
-      ? await resolveOrgForSource(supabase, "whatsapp", phoneNumberId)
-      : null;
+    const { data: source } = await supabase
+      .from("webhook_sources")
+      .select("org_id, project_id")
+      .eq("provider", "whatsapp")
+      .eq("external_id", phoneNumberId)
+      .maybeSingle();
 
-    if (!org) {
-      // Unknown source: record for ops, create nothing tenant-scoped.
+    if (!source) {
       try {
         await supabase.from("webhook_events").insert({
           org_id: null,
           provider: "whatsapp",
           event_type: "unmapped_source",
           idempotency_key: `wa_unmapped_${message.id}`,
-          payload: { phone_number_id: phoneNumberId },
+          payload: { phone_number_id: phoneNumberId, message_id: message.id },
           status: "failed",
           error_message: "No webhook_sources mapping for phone_number_id",
           processed_at: new Date().toISOString(),
@@ -137,85 +131,142 @@ export async function POST(req: NextRequest) {
       return apiSuccess({ status: "unmapped_phone_number_id" }, 200);
     }
 
-    // IDEMPOTENCY: durable, enforced by the unique index on webhook_events.
+    // IDEMPOTENCY: durable lock enforced by unique idempotency_key on webhook_events
     const idempotencyKey = `wa_msg_${message.id}`;
     const { error: insertEventError } = await supabase.from("webhook_events").insert({
-      org_id: org.id,
+      org_id: source.org_id,
       provider: "whatsapp",
       event_type: "inbound_message",
       idempotency_key: idempotencyKey,
       payload: jsonBody,
-      status: "pending",
+      status: "processing",
     });
 
     if (insertEventError) {
-      // Unique violation => duplicate delivery; safely drop.
       return apiSuccess({ status: "duplicate_dropped", messageId: message.id }, 200);
     }
 
-    // Normalize incoming phone
-    const normalizedPhone = fromPhoneNormalized(message.from);
+    const senderName = senderNameSafe(contact.profile.name);
+    const normalizedPhone = normalizePhone(message.from);
+    const messageBody = message.text?.body || "[WhatsApp Media / Audio Message]";
 
-    // Check or create person (tenant-scoped)
-    let personId: string | null = null;
-    const { data: person } = await supabase
-      .from("people")
-      .select("id")
-      .eq("org_id", org.id)
+    // Check if active lead exists
+    const { data: existingLeads } = await supabase
+      .from("leads")
+      .select("id, person_id, stage, salesperson_id, project_name, profiles(name)")
+      .eq("org_id", source.org_id)
       .eq("phone_normalized", normalizedPhone)
-      .maybeSingle();
+      .order("created_at", { ascending: false });
 
-    if (person) {
-      personId = person.id;
-    } else {
-      const { data: newPerson } = await supabase
-        .from("people")
-        .insert({
-          org_id: org.id,
-          name: senderNameSafe(contact.profile.name),
-          phone: normalizedPhone,
-          phone_normalized: normalizedPhone,
-          source: "WhatsApp Inbound",
-        })
-        .select("id")
-        .single();
-      personId = newPerson?.id ?? null;
-    }
+    const activeLead = existingLeads?.find((l) => !["won", "lost"].includes(l.stage));
 
-    // Log inbound activity (attacker-controlled text is truncated & fenced)
-    if (personId) {
+    if (activeLead) {
+      // Append conversation activity
       await supabase.from("activities").insert({
-        org_id: org.id,
-        person_id: personId,
+        org_id: source.org_id,
+        lead_id: activeLead.id,
+        person_id: activeLead.person_id,
+        user_id: activeLead.salesperson_id || source.org_id,
+        user_name: "WhatsApp Integration",
+        person_name: senderName,
         type: "whatsapp",
-        outcome: "inbound_message",
-        outcome_label: "WhatsApp Message Received",
-        notes: truncate(`[WhatsApp Inbound]: ${JSON.stringify(message.text?.body ?? "")}`, 1900),
+        title: "Inbound WhatsApp Message",
+        notes: truncate(`[WhatsApp Inbound Msg ${message.id}]: ${messageBody}`, 1900),
+        occurred_at: new Date().toISOString(),
       });
+
+      await supabase
+        .from("leads")
+        .update({
+          last_activity_text: `WhatsApp: ${truncate(messageBody, 50)}`,
+          last_activity_at: new Date().toISOString(),
+        })
+        .eq("id", activeLead.id)
+        .eq("org_id", source.org_id);
+
+      if (activeLead.salesperson_id) {
+        await createNotification({
+          orgId: source.org_id,
+          userId: activeLead.salesperson_id,
+          title: `WhatsApp Message from ${senderName}`,
+          message: truncate(messageBody, 120),
+          type: "lead_assigned",
+          priority: "high",
+          entityType: "lead",
+          entityId: activeLead.id,
+          link: `/leads?id=${activeLead.id}`,
+          dedupKey: `wa_notif_${message.id}`,
+        });
+      }
+
+      await supabase
+        .from("webhook_events")
+        .update({
+          status: "processed",
+          lead_id: activeLead.id,
+          person_id: activeLead.person_id,
+          processed_at: new Date().toISOString(),
+        })
+        .eq("idempotency_key", idempotencyKey)
+        .eq("org_id", source.org_id);
+
+      return apiSuccess({
+        status: "attached_to_existing_lead",
+        leadId: activeLead.id,
+        messageId: message.id,
+      }, 200);
     }
 
+    // If no active lead exists, ingest fresh lead into sales pipeline
+    const ingestionResult = await ingestInboundLead({
+      orgId: source.org_id,
+      source: "WhatsApp Inbound",
+      personName: senderName,
+      phone: normalizedPhone,
+      projectId: source.project_id || null,
+      externalLeadId: message.id,
+      rawPayload: jsonBody,
+      customNotes: `WhatsApp Message: "${messageBody}"`,
+    });
+
+    if (!ingestionResult.success) {
+      await supabase
+        .from("webhook_events")
+        .update({
+          status: ingestionResult.reason === "LEAD_QUOTA_EXCEEDED" ? "failed" : "retryable",
+          last_error: ingestionResult.error || ingestionResult.reason,
+          processed_at: new Date().toISOString(),
+        })
+        .eq("idempotency_key", idempotencyKey)
+        .eq("org_id", source.org_id);
+
+      return apiSuccess({
+        status: "ingestion_failed",
+        reason: ingestionResult.reason || ingestionResult.error,
+      }, 200);
+    }
+
+    // Mark processed
     await supabase
       .from("webhook_events")
-      .update({ status: "processed", processed_at: new Date().toISOString() })
+      .update({
+        status: "processed",
+        lead_id: ingestionResult.leadId,
+        person_id: ingestionResult.personId,
+        processed_at: new Date().toISOString(),
+      })
       .eq("idempotency_key", idempotencyKey)
-      .eq("org_id", org.id);
+      .eq("org_id", source.org_id);
 
-    return apiSuccess({ status: "processed", messageId: message.id }, 200);
-  } catch (err) {
-    console.error("[WHATSAPP_PROCESSING_ERROR]");
-    // Always return 200 to Meta Webhook to prevent retry storms
+    return apiSuccess({
+      status: "processed",
+      leadId: ingestionResult.leadId,
+      salespersonId: ingestionResult.salespersonId,
+      isNewLead: ingestionResult.isNewLead,
+      messageId: message.id,
+    }, 200);
+  } catch (err: any) {
+    console.error("[WHATSAPP_PROCESSING_ERROR]", err);
     return apiSuccess({ status: "error_acknowledged" }, 200);
   }
-}
-
-function fromPhoneNormalized(from: string): string {
-  return from.startsWith("+") ? from : `+${from}`;
-}
-
-function senderNameSafe(name: string): string {
-  return truncate(name.trim(), 200) || "Unknown Contact";
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
 }

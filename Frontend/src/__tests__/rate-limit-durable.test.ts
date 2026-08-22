@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { checkRateLimitDurable } from "../lib/server/rate-limit";
 
 // Mock the service-role client factory so no env vars are needed.
-const rpcMock = vi.fn();
+const rpcMock = vi.fn() as any;
 vi.mock("../lib/server/supabase-server", () => ({
   getServiceRoleClient: () =>
     rpcMock.enabled

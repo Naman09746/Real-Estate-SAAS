@@ -7,6 +7,7 @@ import { useAuth } from "@/context/auth-context";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import Link from "next/link";
 
 interface TopBarProps {
@@ -49,8 +50,8 @@ export function TopBar({ onOpenQuickLog, onOpenSearch, onToggleMobileMenu }: Top
         </button>
       </div>
 
-      {/* Right Side: Quick Action & User Profile */}
-      <div className="flex items-center gap-3">
+      {/* Right Side: Quick Action, Notifications & User Profile */}
+      <div className="flex items-center gap-2.5 sm:gap-3">
         <Button
           size="sm"
           onClick={onOpenQuickLog}
@@ -60,6 +61,9 @@ export function TopBar({ onOpenQuickLog, onOpenSearch, onToggleMobileMenu }: Top
           <span className="hidden sm:inline">Log Activity</span>
           <span className="sm:hidden">Log</span>
         </Button>
+
+        {/* In-App Notification Bell */}
+        <NotificationBell />
 
         {/* Organization / Plan Badge */}
         {org?.plan && (
@@ -72,7 +76,7 @@ export function TopBar({ onOpenQuickLog, onOpenSearch, onToggleMobileMenu }: Top
           <button
             type="button"
             onClick={() => setProfileOpen(!profileOpen)}
-            className="flex items-center gap-2 pl-3 border-l border-border hover:opacity-80 transition-opacity"
+            className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-border hover:opacity-80 transition-opacity"
           >
             <Avatar className="h-7 w-7 text-xs">
               <AvatarFallback className="bg-primary text-primary-foreground font-bold">

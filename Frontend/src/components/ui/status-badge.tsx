@@ -69,24 +69,36 @@ export function TaskStatusBadge({ status }: { status: TaskStatusType | string })
   );
 }
 
-export function DealHealthBadge({ health, reason }: { health: DealHealth; reason?: string }) {
+export function DealHealthBadge({
+  health,
+  score,
+  reason,
+  showScore = false,
+}: {
+  health: DealHealth;
+  score?: number;
+  reason?: string;
+  showScore?: boolean;
+}) {
+  const scoreSuffix = showScore && typeof score === "number" ? ` · ${score}/100` : "";
+
   if (health === "strong") {
     return (
-      <Badge variant="success" dot className="font-semibold text-[11px]" title={reason}>
-        Strong
+      <Badge variant="success" dot className="font-semibold text-[11px]" title={reason || `Health score: ${score ?? 85}/100`}>
+        Strong{scoreSuffix}
       </Badge>
     );
   }
   if (health === "at_risk") {
     return (
-      <Badge variant="destructive" dot className="font-bold text-[11px] animate-pulse" title={reason}>
-        At Risk
+      <Badge variant="destructive" dot className="font-bold text-[11px] animate-pulse" title={reason || `Health score: ${score ?? 35}/100`}>
+        At Risk{scoreSuffix}
       </Badge>
     );
   }
   return (
-    <Badge variant="secondary" dot className="text-[11px]" title={reason}>
-      Neutral
+    <Badge variant="secondary" dot className="text-[11px]" title={reason || `Health score: ${score ?? 60}/100`}>
+      Neutral{scoreSuffix}
     </Badge>
   );
 }

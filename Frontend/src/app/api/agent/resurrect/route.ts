@@ -8,9 +8,14 @@ import {
   MANAGER_ROLES,
 } from "@/lib/server/supabase-server";
 import { checkFeatureAccess, resolvePlan } from "@/lib/server/subscription";
+import {
+  findTopResurrectionCandidates,
+  scanResurrectionOpportunitiesInMemory,
+} from "@/lib/server/resurrection-engine";
+import { INITIAL_LEADS, INITIAL_UNITS, INITIAL_PROJECTS } from "@/lib/mock-data";
 
-// POST /api/agent/resurrect - Lost-Lead Matching Engine
-// Manager+ only: returns dormant buyer PII across the organization.
+// POST /api/agent/resurrect - Production Multi-Factor Resurrection Scanner
+// Manager+ only: scans eligible lost/stale leads against live inventory.
 export async function POST(req: NextRequest) {
   const auth = await getApiAuthContext();
   if (!auth) {
@@ -35,107 +40,121 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const rateCheck = checkRateLimit(`agent_resurrect_${auth.userId}`, 20, 60000);
+  const rateCheck = checkRateLimit(`agent_resurrect_${auth.userId}`, 30, 60000);
   if (!rateCheck.allowed) {
     return apiError("Rate limit exceeded for AI Resurrection scanner", 429, "RATE_LIMIT_EXCEEDED");
-  }
-
-  const supabase = await getAuthenticatedServerClient();
-  if (!supabase || !isLiveSupabaseAvailable) {
-    return apiError(
-      "Backend database is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
-      503,
-      "SERVICE_UNAVAILABLE"
-    );
   }
 
   const startTime = Date.now();
 
   try {
     const rawBody = await req.json().catch(() => ({}));
-    // Strict integer validation — prevents PostgREST .or() filter injection
-    const { daysThreshold } = resurrectScanSchema.parse(rawBody);
+    const { leadId, daysThreshold, minScore, limit, force } = resurrectScanSchema.parse(rawBody);
 
-    // 1. Query dormant or lost leads (tenant isolation via RLS + explicit org filter)
-    const { data: staleLeads, error: leadsError } = await supabase
-      .from("leads")
-      .select(`
-        id,
-        stage,
-        days_in_stage,
-        budget,
-        project_id,
-        people:person_id (name, phone),
-        projects:project_id (name, location)
-      `)
-      .eq("org_id", auth.orgId)
-      .or(`stage.eq.lost,days_in_stage.gte.${daysThreshold}`)
-      .limit(20);
+    const supabase = await getAuthenticatedServerClient();
+    if (!supabase || !isLiveSupabaseAvailable) {
+      // Offline / Simulated Fallback
+      if (leadId) {
+        const lead = INITIAL_LEADS.find((l) => l.id === leadId) || INITIAL_LEADS[0];
+        const candidates = findTopResurrectionCandidates(lead, INITIAL_UNITS, INITIAL_PROJECTS, limit, minScore);
+        return apiSuccess({
+          leadId,
+          personName: lead.personName,
+          candidates,
+          latencyMs: Date.now() - startTime,
+        });
+      }
 
-    if (leadsError) {
-      console.error("[RESURRECT_SCAN_ERROR]", leadsError.code);
-      return apiError("Failed to scan dormant leads", 500, "DB_SCAN_ERROR");
-    }
-
-    // 2. Query available inventory units to match (tenant-scoped)
-    const { data: availableUnits, error: unitsError } = await supabase
-      .from("project_units")
-      .select("id, project_id, tower, unit_number, configuration, price")
-      .eq("org_id", auth.orgId)
-      .eq("status", "available")
-      .limit(50);
-
-    if (unitsError) {
-      console.error("[RESURRECT_UNITS_ERROR]", unitsError.code);
-      return apiError("Failed to load inventory for matching", 500, "DB_SCAN_ERROR");
-    }
-
-    const matches = (staleLeads || []).map((lead: any) => {
-      const matchingUnit = (availableUnits || []).find((u: any) =>
-        u.project_id === lead.project_id ||
-        Math.abs(u.price - lead.budget) / (lead.budget || 1) <= 0.2
+      const scanResult = scanResurrectionOpportunitiesInMemory(
+        INITIAL_LEADS,
+        INITIAL_UNITS,
+        INITIAL_PROJECTS,
+        daysThreshold,
+        minScore,
+        force
       );
 
-      return {
-        leadId: lead.id,
-        buyerName: lead.people?.name || "Client",
-        phone: lead.people?.phone || "",
-        currentStage: lead.stage,
-        daysInactive: lead.days_in_stage,
-        matchedUnit: matchingUnit ? {
-          id: matchingUnit.id,
-          tower: matchingUnit.tower,
-          unitNumber: matchingUnit.unit_number,
-          config: matchingUnit.configuration,
-          price: matchingUnit.price,
-        } : null,
-        suggestedAngle: matchingUnit ? "New Tower Allotment" : "20:80 Payment Scheme",
-        revivalScore: matchingUnit ? 92 : 75,
-      };
+      return apiSuccess({
+        ...scanResult,
+        latencyMs: Date.now() - startTime,
+      });
+    }
+
+    // 1. Single Lead Candidate Retrieval
+    if (leadId) {
+      const { data: candidates, error: candidateErr } = await supabase.rpc("find_resurrection_candidates", {
+        p_org_id: auth.orgId,
+        p_lead_id: leadId,
+        p_limit: limit,
+        p_min_score: minScore,
+      });
+
+      if (candidateErr) {
+        console.error("[RESURRECT_CANDIDATE_RPC_ERROR]", candidateErr.message);
+        return apiError("Failed to find resurrection candidates for lead", 500, "DB_ERROR");
+      }
+
+      // Log AI execution telemetry
+      try {
+        await supabase.from("ai_agent_executions").insert({
+          org_id: auth.orgId,
+          session_id: `resurrect_single_${Date.now()}`,
+          agent_name: "lost_lead_resurrector",
+          tool_invoked: "find_resurrection_candidates",
+          tool_input: { leadId, limit, minScore },
+          tool_output: { candidateCount: Array.isArray(candidates) ? candidates.length : 0 },
+          latency_ms: Date.now() - startTime,
+          status: "success",
+          executed_by_user_id: auth.userId,
+        });
+      } catch {
+        // Non-blocking telemetry
+      }
+
+      return apiSuccess({
+        leadId,
+        candidates: candidates || [],
+        latencyMs: Date.now() - startTime,
+      });
+    }
+
+    // 2. Batch Opportunity Scan
+    const { data: scanData, error: scanErr } = await supabase.rpc("scan_resurrection_opportunities", {
+      p_org_id: auth.orgId,
+      p_days_threshold: daysThreshold,
+      p_limit: limit,
+      p_min_score: minScore,
+      p_force: force,
     });
 
-    // 3. Log AI execution telemetry (best-effort; never blocks the response)
+    if (scanErr) {
+      console.error("[RESURRECT_BATCH_RPC_ERROR]", scanErr.message);
+      return apiError("Failed to scan resurrection opportunities", 500, "DB_ERROR");
+    }
+
+    const result = scanData || { scannedCount: 0, matchedCount: 0, opportunities: [] };
+
+    // Log AI execution telemetry
     try {
       await supabase.from("ai_agent_executions").insert({
         org_id: auth.orgId,
-        session_id: `resurrect_scan_${Date.now()}`,
+        session_id: `resurrect_batch_${Date.now()}`,
         agent_name: "lost_lead_resurrector",
-        tool_invoked: "scan_and_match_inventory",
-        tool_input: { daysThreshold },
-        tool_output: { count: matches.length },
+        tool_invoked: "scan_resurrection_opportunities",
+        tool_input: { daysThreshold, limit, minScore, force },
+        tool_output: { matchedCount: result.matchedCount },
         latency_ms: Date.now() - startTime,
         status: "success",
         executed_by_user_id: auth.userId,
       });
-    } catch (telemetryErr) {
-      console.warn("[RESURRECT_TELEMETRY_FAILED]");
+    } catch {
+      // Non-blocking telemetry
     }
 
     return apiSuccess({
-      totalScanned: staleLeads?.length || 0,
-      resurrectableOpportunities: matches,
+      ...result,
       latencyMs: Date.now() - startTime,
-    }, 200);
+    });
   } catch (err: unknown) {
     if (err && typeof err === "object" && "issues" in err) {
       return apiError("Invalid scan parameters", 422, "VALIDATION_ERROR", (err as any).issues);

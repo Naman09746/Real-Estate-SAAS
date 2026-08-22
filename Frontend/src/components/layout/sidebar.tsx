@@ -14,6 +14,7 @@ import {
   ChartNoAxesCombined,
   MapPin,
   Settings,
+  CreditCard,
   Home,
   Shield,
   UserCheck,
@@ -52,6 +53,7 @@ export function Sidebar({ className, activeTab, onSelectTab }: SidebarProps) {
   const adminNavItems = [
     { id: "users", label: "Users", href: "/users", icon: Users },
     { id: "regions", label: "Regions", href: "/regions", icon: MapPin },
+    { id: "billing", label: "Billing & Plans", href: "/billing", icon: CreditCard },
     { id: "settings", label: "Settings", href: "/settings", icon: Settings },
   ];
 

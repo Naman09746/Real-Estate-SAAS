@@ -80,15 +80,45 @@ export function BossOverview({
     });
   }, [filteredLeads, dateRange]);
 
-  // Calculate Real KPI Metrics based on filtered + date-ranged data
-  const totalLeads = rangedLeads.length;
-  const openLeads = rangedLeads.filter((l) => l.stage !== "won" && l.stage !== "lost").length;
+  const [serverAnalytics, setServerAnalytics] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (dateRange) params.set("range", dateRange);
+        if (selectedRegionId && selectedRegionId !== "all") params.set("region_id", selectedRegionId);
+        if (selectedSalespersonId && selectedSalespersonId !== "all") params.set("salesperson_id", selectedSalespersonId);
+        if (selectedProjectId && selectedProjectId !== "all") params.set("project_id", selectedProjectId);
+
+        const res = await fetch(`/api/analytics/dashboard?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && !cancelled) {
+            setServerAnalytics(json.data);
+          }
+        }
+      } catch {
+        // non-blocking fallback to in-memory calculations
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, selectedRegionId, selectedSalespersonId, selectedProjectId]);
+
+  // Calculate Real KPI Metrics with server authority and client fallback
+  const totalLeads = serverAnalytics?.pipeline?.totalLeads ?? rangedLeads.length;
+  const openLeads = serverAnalytics?.pipeline?.activeLeads ?? rangedLeads.filter((l) => l.stage !== "won" && l.stage !== "lost").length;
   const siteVisits = rangedLeads.filter((l) => l.stage === "site_visit").length;
-  const wonDeals = rangedLeads.filter((l) => l.stage === "won").length;
-  const followUpsDue = rangedLeads.filter((l) => l.followUpStatus === "due_today" || l.followUpStatus === "overdue").length;
-  const overdueCount = rangedLeads.filter((l) => l.followUpStatus === "overdue").length;
-  const totalPipelineValue = rangedLeads.reduce((acc, curr) => acc + (curr.budget || 0), 0);
-  const wonValue = rangedLeads.filter((l) => l.stage === "won").reduce((acc, curr) => acc + (curr.budget || 0), 0);
+  const wonDeals = serverAnalytics?.pipeline?.wonLeads ?? rangedLeads.filter((l) => l.stage === "won").length;
+  const followUpsDue = serverAnalytics?.sla?.upcomingTasks
+    ? serverAnalytics.sla.upcomingTasks + serverAnalytics.sla.dueTodayTasks + serverAnalytics.sla.overdueTasks
+    : rangedLeads.filter((l) => l.followUpStatus === "due_today" || l.followUpStatus === "overdue").length;
+  const overdueCount = serverAnalytics?.sla?.overdueTasks ?? rangedLeads.filter((l) => l.followUpStatus === "overdue").length;
+  const totalPipelineValue = serverAnalytics?.pipeline?.totalPipelineValue ?? rangedLeads.reduce((acc, curr) => acc + (curr.budget || 0), 0);
+  const wonValue = serverAnalytics?.pipeline?.wonRevenue ?? rangedLeads.filter((l) => l.stage === "won").reduce((acc, curr) => acc + (curr.budget || 0), 0);
 
   // Real inflow momentum: leads added in the last 30 days vs the prior 30 days.
   const inflowMomentum = React.useMemo(() => {

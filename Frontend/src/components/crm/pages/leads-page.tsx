@@ -20,6 +20,8 @@ import {
   ShieldAlert,
   ChevronDown,
   Sparkles,
+  UploadCloud,
+  X,
 } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,7 @@ import { LeadDetailModal } from "@/components/crm/lead-detail-modal";
 import { QuickActivityModal } from "@/components/crm/quick-activity-modal";
 import { Lead, PipelineStage, DealHealth } from "@/types/crm";
 import { actionCardProps } from "@/components/ui/action-card";
+import { toast } from "sonner";
 
 export function LeadsPage() {
   const {
@@ -271,32 +274,87 @@ export function LeadsPage() {
     setSelectedIds([]);
   };
 
-  const handleExportCSV = () => {
-    const targetLeads = selectedIds.length > 0
-      ? leads.filter((l) => selectedIds.includes(l.id))
-      : leads;
+  // CSV Import State
+  const [isImportOpen, setIsImportOpen] = React.useState(false);
+  const [importCsvText, setImportCsvText] = React.useState("");
+  const [isImporting, setIsImporting] = React.useState(false);
+  const [importResults, setImportResults] = React.useState<{ imported: number; duplicates: number; failed: number; errors: any[] } | null>(null);
 
-    const headers = ["Name", "Phone", "Project", "Budget", "Stage", "Score", "Health", "Rep", "FollowUp"];
-    const rows = targetLeads.map((l) => [
-      `"${l.personName}"`,
-      `"${l.phone}"`,
-      `"${l.projectName}"`,
-      l.budget,
-      l.stage,
-      l.leadScore,
-      l.dealHealth,
-      `"${l.salespersonName}"`,
-      `"${l.nextFollowUpAt || ""}"`,
-    ]);
+  const handleImportCSV = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importCsvText.trim()) {
+      toast.error("Please paste CSV data to import");
+      return;
+    }
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `callcrm-leads-${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setIsImporting(true);
+    try {
+      const lines = importCsvText.trim().split("\n");
+      const parsedLeads = [];
+      for (const line of lines) {
+        const parts = line.split(",").map((p) => p.trim().replace(/^"|"$/g, ""));
+        if (parts.length >= 2 && parts[0] && parts[1]) {
+          parsedLeads.push({
+            personName: parts[0],
+            phone: parts[1],
+            email: parts[2] || undefined,
+            budget: parseFloat(parts[3]) || 15000000,
+            projectName: parts[4] || undefined,
+            stage: (parts[5] as PipelineStage) || "new",
+            source: parts[6] || "CSV Import",
+            configurationPreference: parts[7] || undefined,
+          });
+        }
+      }
+
+      if (parsedLeads.length === 0) {
+        toast.error("No valid lead rows found. Required columns: Name, Phone");
+        return;
+      }
+
+      const res = await fetch("/api/leads/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leads: parsedLeads }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error?.message || "CSV import failed");
+        return;
+      }
+
+      setImportResults(json.data);
+      toast.success(`Imported ${json.data.imported} leads (${json.data.duplicates} duplicates skipped)`);
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch {
+      toast.error("Error submitting lead import");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const res = await fetch("/api/leads/export");
+      if (!res.ok) {
+        toast.error("Failed to generate leads export");
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `callcrm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success("Leads CSV exported successfully");
+    } catch {
+      toast.error("Network error during leads export");
+    }
   };
 
   return (
@@ -360,6 +418,19 @@ export function LeadsPage() {
           <Button
             size="sm"
             variant="outline"
+            onClick={() => {
+              setImportResults(null);
+              setImportCsvText("");
+              setIsImportOpen(true);
+            }}
+            className="text-xs font-semibold gap-1.5"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-primary" />
+            <span>Import CSV</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={handleExportCSV}
             className="text-xs font-semibold gap-1.5"
           >
@@ -372,6 +443,100 @@ export function LeadsPage() {
           </Button>
         </div>
       </div>
+
+      {/* CSV Import Modal */}
+      {isImportOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-border shadow-2xl bg-card p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-primary" />
+                <h3 className="font-bold text-base text-foreground">Import Leads from CSV</h3>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setIsImportOpen(false)} className="h-8 w-8">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {importResults ? (
+              <div className="space-y-3 text-xs">
+                <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 space-y-2">
+                  <h4 className="font-bold text-emerald-700 dark:text-emerald-300 text-sm">
+                    ✅ Import Complete!
+                  </h4>
+                  <div className="grid grid-cols-3 gap-2 font-mono text-xs">
+                    <div className="p-2 rounded bg-card border border-border">
+                      <span className="text-muted-foreground block text-[10px]">Imported</span>
+                      <strong className="text-emerald-600 text-sm">{importResults.imported}</strong>
+                    </div>
+                    <div className="p-2 rounded bg-card border border-border">
+                      <span className="text-muted-foreground block text-[10px]">Duplicates</span>
+                      <strong className="text-amber-600 text-sm">{importResults.duplicates}</strong>
+                    </div>
+                    <div className="p-2 rounded bg-card border border-border">
+                      <span className="text-muted-foreground block text-[10px]">Failed</span>
+                      <strong className="text-destructive text-sm">{importResults.failed}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {importResults.errors && importResults.errors.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto space-y-1 p-2 rounded border border-border bg-secondary/30 text-[11px] font-mono text-destructive">
+                    {importResults.errors.map((e, idx) => (
+                      <div key={idx}>Row {e.row}: {e.error}</div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <Button size="sm" onClick={() => setIsImportOpen(false)} className="text-xs">
+                    Close
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleImportCSV} className="space-y-3.5 text-xs">
+                <p className="text-muted-foreground">
+                  Paste comma-separated rows with the following column structure:
+                  <br />
+                  <code className="text-primary font-mono text-[11px]">
+                    BuyerName, Phone, Email, Budget, ProjectName, Stage, Source, LayoutPreference
+                  </code>
+                </p>
+
+                <textarea
+                  rows={8}
+                  value={importCsvText}
+                  onChange={(e) => setImportCsvText(e.target.value)}
+                  placeholder={`Rajesh Mehta, +919876543210, rajesh@example.com, 25000000, The Grand Pinnacle, new, Web Inbound, 3 BHK Luxury\nAnanya Sharma, +919823456789, ananya@example.com, 45000000, Sea Breeze Residency, site_visit, Referral, 4 BHK Penthouse`}
+                  className="w-full p-2.5 rounded border border-border bg-secondary/50 text-foreground font-mono text-[11px]"
+                />
+
+                <div className="flex items-center justify-between pt-2 border-t border-border">
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    Phone numbers will be normalized to +91 E.164. Deduplicated automatically.
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsImportOpen(false)}
+                      className="h-8 text-xs"
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" size="sm" disabled={isImporting} className="h-8 text-xs font-semibold gap-1.5">
+                      <UploadCloud className="h-3.5 w-3.5" />
+                      <span>{isImporting ? "Importing..." : "Start Import"}</span>
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Floating / Sticky Bulk Actions Bar when items selected in list view */}
       {viewMode === "list" && selectedIds.length > 0 && (
@@ -634,7 +799,7 @@ export function LeadsPage() {
                     </span>
                     <span className="font-bold text-base text-foreground">{lead.personName}</span>
                     <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
-                    <DealHealthBadge health={lead.dealHealth} reason={lead.dealHealthReason} />
+                    <DealHealthBadge health={lead.dealHealth} score={lead.dealHealthScore} reason={lead.dealHealthReason} showScore />
                     <PipelineBadge stage={lead.stage} />
                   </div>
 
@@ -760,7 +925,7 @@ export function LeadsPage() {
                     <TableCell>
                       <div className="flex flex-col gap-1 items-start">
                         <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
-                        <DealHealthBadge health={lead.dealHealth} reason={lead.dealHealthReason} />
+                        <DealHealthBadge health={lead.dealHealth} score={lead.dealHealthScore} reason={lead.dealHealthReason} showScore />
                       </div>
                     </TableCell>
 
