@@ -33,6 +33,8 @@ import {
   isSyncEnabled,
   hydrateCrmData,
   fetchLeads,
+  fetchTasks,
+  fetchActivities,
   mapLeadRow,
   leadToRow,
   updateLeadRemote,
@@ -165,22 +167,41 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       setTasks(data.tasks);
       setDocuments(data.documents);
 
-      // Realtime: any lead change from ANY session/device triggers a
-      // debounced refetch — simple, correct, and avoids patch-order bugs.
+      // Realtime: any change from ANY session/device triggers a debounced
+      // refetch per entity — simple, correct, and avoids patch-order bugs.
       const supabase = getSupabaseClient();
       if (supabase) {
+        const debouncedRefetch = (fetcher: () => Promise<unknown>, apply: (data: any) => void) => {
+          return () => {
+            if (refetchTimer) clearTimeout(refetchTimer);
+            refetchTimer = setTimeout(async () => {
+              if (cancelled) return;
+              try {
+                const fresh = await fetcher();
+                if (!cancelled && fresh) apply(fresh);
+              } catch (e) {
+                reportError("crm.realtime", e);
+              }
+            }, 1500);
+          };
+        };
+
         channel = supabase
-          .channel("crm-leads-realtime")
+          .channel("crm-realtime")
           .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "leads" },
-            () => {
-              if (refetchTimer) clearTimeout(refetchTimer);
-              refetchTimer = setTimeout(async () => {
-                const fresh = await fetchLeads();
-                if (!cancelled && fresh) setLeads(fresh);
-              }, 1500);
-            }
+            debouncedRefetch(fetchLeads, (rows) => setLeads(rows))
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "tasks" },
+            debouncedRefetch(fetchTasks, (rows) => setTasks(rows))
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "activities" },
+            debouncedRefetch(fetchActivities, (rows) => setActivities(rows))
           )
           .subscribe();
       }
