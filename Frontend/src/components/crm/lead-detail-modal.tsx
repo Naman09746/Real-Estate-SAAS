@@ -25,9 +25,14 @@ import {
   Compass as CompassIcon,
   Users2,
   FileText,
+  UploadCloud,
+  FileCheck,
+  Trash2,
+  ExternalLink,
+  Download,
 } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
-import { Lead, PipelineStage } from "@/types/crm";
+import { Lead, PipelineStage, CRMDocument } from "@/types/crm";
 import { Button } from "@/components/ui/button";
 import { PipelineBadge, TaskStatusBadge, DealHealthBadge, LeadScoreBadge, UnitStatusBadge } from "@/components/ui/status-badge";
 import {
@@ -37,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatCurrencyINR, formatPhone } from "@/lib/utils";
+import { WhatsAppActionModal } from "@/components/crm/whatsapp-action-modal";
 
 interface LeadDetailModalProps {
   lead: Lead | null;
@@ -51,7 +57,14 @@ export function LeadDetailModal({
   onOpenChange,
   onLogActivity,
 }: LeadDetailModalProps) {
-  const { activities, updateLeadStage, units, assignUnitToLead } = useCRM();
+  const { activities, updateLeadStage, units, assignUnitToLead, documents, uploadDocument, deleteDocument } = useCRM();
+
+  const [whatsappModalOpen, setWhatsappModalOpen] = React.useState(false);
+  const [showUploadDocForm, setShowUploadDocForm] = React.useState(false);
+  const [docTitle, setDocTitle] = React.useState("");
+  const [docType, setDocType] = React.useState<CRMDocument["type"]>("kyc");
+  const [docUrl, setDocUrl] = React.useState("");
+  const [isUploading, setIsUploading] = React.useState(false);
 
   if (!lead) return null;
 
@@ -60,6 +73,29 @@ export function LeadDetailModal({
   const alternativeUnits = projectUnits.filter(
     (u) => u.id !== lead.assignedUnitId && u.status === "available"
   );
+
+  // Documents attached to this lead or this project
+  const leadDocuments = documents.filter((d) => d.leadId === lead.id);
+  const projectDocuments = documents.filter((d) => d.projectId === lead.projectId);
+
+  const handleUploadDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docTitle.trim()) return;
+
+    setIsUploading(true);
+    await uploadDocument({
+      title: docTitle.trim(),
+      type: docType,
+      leadId: lead.id,
+      projectId: lead.projectId,
+      fileUrl: docUrl.trim() || `https://storage.callcrm.in/vault/${docTitle.toLowerCase().replace(/\s+/g, "-")}.pdf`,
+    });
+
+    setDocTitle("");
+    setDocUrl("");
+    setShowUploadDocForm(false);
+    setIsUploading(false);
+  };
 
   const stages: { id: PipelineStage; label: string }[] = [
     { id: "new", label: "New" },
@@ -72,59 +108,66 @@ export function LeadDetailModal({
   ];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[760px] max-h-[92vh] overflow-y-auto p-6 space-y-5 rounded-2xl border border-border shadow-modal">
-        {/* 1. HEADER WITH IDENTITY, STAGE, HEALTH, AND ACTIONS */}
-        <DialogHeader className="pb-3 border-b border-border">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <DialogTitle className="text-xl font-bold text-foreground">
-                  {lead.personName}
-                </DialogTitle>
-                <PipelineBadge stage={lead.stage} />
-                <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
-                <DealHealthBadge health={lead.dealHealth} reason={lead.dealHealthReason} />
-              </div>
-              <div className="text-xs text-muted-foreground font-mono flex items-center gap-2">
-                <span>{formatPhone(lead.phone)}</span>
-                {lead.email && <span>• {lead.email}</span>}
-                <span>• Rep: <strong>{lead.salespersonName}</strong></span>
-              </div>
-            </div>
+    <>
+      <WhatsAppActionModal
+        lead={lead}
+        open={whatsappModalOpen}
+        onOpenChange={setWhatsappModalOpen}
+      />
 
-            {/* Direct 1-Click Operational Action Bar */}
-            <div className="flex items-center gap-2 shrink-0">
-              <a
-                href={`tel:${lead.phone}`}
-                className="inline-flex items-center justify-center h-8 px-3 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-              >
-                <Phone className="h-3.5 w-3.5 mr-1.5" />
-                Call
-              </a>
-              <a
-                href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center justify-center h-8 px-3 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-              >
-                <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
-                WhatsApp
-              </a>
-              <Button
-                size="sm"
-                className="h-8 text-xs font-semibold"
-                onClick={() => {
-                  onOpenChange(false);
-                  onLogActivity(lead.id);
-                }}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                Log Touchpoint
-              </Button>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[780px] max-h-[92vh] overflow-y-auto p-6 space-y-5 rounded-2xl border border-border shadow-modal">
+          {/* 1. HEADER WITH IDENTITY, STAGE, HEALTH, AND ACTIONS */}
+          <DialogHeader className="pb-3 border-b border-border">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <DialogTitle className="text-xl font-bold text-foreground">
+                    {lead.personName}
+                  </DialogTitle>
+                  <PipelineBadge stage={lead.stage} />
+                  <LeadScoreBadge score={lead.leadScore} label={lead.leadScoreLabel} />
+                  <DealHealthBadge health={lead.dealHealth} reason={lead.dealHealthReason} />
+                </div>
+                <div className="text-xs text-muted-foreground font-mono flex items-center gap-2">
+                  <span>{formatPhone(lead.phone)}</span>
+                  {lead.email && <span>• {lead.email}</span>}
+                  <span>• Rep: <strong>{lead.salespersonName}</strong></span>
+                </div>
+              </div>
+
+              {/* Direct 1-Click Operational Action Bar */}
+              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                <a
+                  href={`tel:${lead.phone}`}
+                  className="inline-flex items-center justify-center h-8 px-2.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                >
+                  <Phone className="h-3.5 w-3.5 mr-1" />
+                  Call
+                </a>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs font-semibold border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                  onClick={() => setWhatsappModalOpen(true)}
+                >
+                  <MessageSquare className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                  WhatsApp Assistant
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs font-semibold"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onLogActivity(lead.id);
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Log Touchpoint
+                </Button>
+              </div>
             </div>
-          </div>
-        </DialogHeader>
+          </DialogHeader>
 
         {/* 2. REAL ESTATE SALES CONTEXT: STRATEGY & SUGGESTED NEXT MOVE */}
         <div className="p-4 rounded-xl border border-primary/20 bg-secondary/30 space-y-2.5 text-xs">
@@ -329,7 +372,159 @@ export function LeadDetailModal({
           </div>
         </div>
 
-        {/* 7. CHRONOLOGICAL ACTIVITY TIMELINE */}
+        {/* 7. DOCUMENT VAULT & KYC FILES */}
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3 text-xs">
+          <div className="flex items-center justify-between border-b border-border pb-2">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary" />
+              <span className="font-bold text-xs uppercase tracking-wider text-foreground">
+                Document Vault & KYC Files ({leadDocuments.length + projectDocuments.length})
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowUploadDocForm(!showUploadDocForm)}
+              className="h-7 text-[11px] font-semibold gap-1"
+            >
+              <UploadCloud className="h-3.5 w-3.5" />
+              {showUploadDocForm ? "Cancel" : "Upload File / KYC"}
+            </Button>
+          </div>
+
+          {/* Quick Upload Form */}
+          {showUploadDocForm && (
+            <form onSubmit={handleUploadDoc} className="p-3 bg-secondary/40 rounded-lg border border-border space-y-2.5 animate-in fade-in-50">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">
+                    Document Title
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={docTitle}
+                    onChange={(e) => setDocTitle(e.target.value)}
+                    placeholder="e.g. Aadhar Card / Pan Card / Token Cheque Copy"
+                    className="w-full h-8 px-2.5 rounded-md border border-input bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">
+                    Document Category
+                  </label>
+                  <select
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value as any)}
+                    className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs text-foreground focus:outline-none"
+                  >
+                    <option value="kyc">Buyer KYC (Aadhar/PAN)</option>
+                    <option value="agreement">Booking Agreement / Cheque</option>
+                    <option value="cost_sheet">Cost Sheet</option>
+                    <option value="brochure">Project Brochure</option>
+                    <option value="floor_plan">Floor Plan</option>
+                    <option value="other">Other Document</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isUploading}
+                  className="h-7 text-xs font-semibold"
+                >
+                  <FileCheck className="h-3.5 w-3.5 mr-1" />
+                  Save to Vault
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* Document list */}
+          <div className="space-y-2">
+            {leadDocuments.length === 0 && projectDocuments.length === 0 ? (
+              <div className="p-3 text-center text-muted-foreground text-[11px] rounded-lg border border-dashed border-border">
+                No KYC or project collateral files attached yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {/* Lead-specific KYC / Agreements */}
+                {leadDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="p-2.5 rounded-lg border border-border bg-card hover:bg-secondary/30 transition-colors flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="h-7 w-7 rounded bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                        <FileText className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="truncate">
+                        <p className="font-semibold text-foreground truncate text-[11px]">{doc.title}</p>
+                        <span className="text-[10px] uppercase font-bold text-blue-600 tracking-wider">
+                          {doc.type.replace("_", " ")}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <a
+                        href={doc.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                        title="Download / View"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => deleteDocument(doc.id)}
+                        className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Project Collateral (Brochures / Floor Plans) */}
+                {projectDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="p-2.5 rounded-lg border border-border bg-secondary/20 hover:bg-secondary/40 transition-colors flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="h-7 w-7 rounded bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                        <Download className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="truncate">
+                        <p className="font-semibold text-foreground truncate text-[11px]">{doc.title}</p>
+                        <span className="text-[10px] uppercase font-bold text-amber-700 tracking-wider">
+                          Project {doc.type.replace("_", " ")}
+                        </span>
+                      </div>
+                    </div>
+
+                    <a
+                      href={doc.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1 text-muted-foreground hover:text-primary transition-colors shrink-0"
+                      title="Download / Share with Buyer"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 8. CHRONOLOGICAL ACTIVITY TIMELINE */}
         <div className="space-y-2 pt-2 border-t border-border">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">
@@ -370,7 +565,7 @@ export function LeadDetailModal({
 
                   {act.notes && (
                     <p className="text-muted-foreground text-[11px] leading-relaxed bg-secondary/30 p-1.5 rounded">
-                      "{act.notes}"
+                      &ldquo;{act.notes}&rdquo;
                     </p>
                   )}
 
@@ -389,6 +584,7 @@ export function LeadDetailModal({
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 

@@ -8,6 +8,7 @@ import {
   Lead,
   Activity,
   Task,
+  CRMDocument,
 } from "@/types/crm";
 
 export const INITIAL_ORG: Organization = {
@@ -88,7 +89,9 @@ export const INITIAL_PROJECTS: Project[] = [
     availableUnitsCount: 38,
     bookedUnitsCount: 82,
     contacts: [
-      { id: "pc-1", name: "Sanjay Kaul (Site Head)", role: "Developer RM", phone: "+91 99999 11223" },
+      { id: "pc-1", name: "Sanjay Kaul (Site Head)", role: "builder", phone: "+91 99999 11223" },
+      { id: "pc-1b", name: "Ram Singh (Gate 2 Guard)", role: "guard", phone: "+91 98110 54321" },
+      { id: "pc-1c", name: "Ar. Sunita Menon", role: "architect", phone: "+91 98201 99887" },
     ],
   },
   {
@@ -107,7 +110,8 @@ export const INITIAL_PROJECTS: Project[] = [
     availableUnitsCount: 24,
     bookedUnitsCount: 72,
     contacts: [
-      { id: "pc-2", name: "Rohit Mathur", role: "Sales RM", phone: "+91 98118 77665" },
+      { id: "pc-2", name: "Rohit Mathur (Sales Lead)", role: "builder", phone: "+91 98118 77665" },
+      { id: "pc-2b", name: "Dinesh Sharma (Tower 4 Guard)", role: "guard", phone: "+91 98711 22334" },
     ],
   },
   {
@@ -125,6 +129,10 @@ export const INITIAL_PROJECTS: Project[] = [
     totalUnits: 140,
     availableUnitsCount: 52,
     bookedUnitsCount: 88,
+    contacts: [
+      { id: "pc-3", name: "Kapil Oberoi (Sales VP)", role: "builder", phone: "+91 98100 88990" },
+      { id: "pc-3b", name: "Kailash (Main Gate Guard)", role: "guard", phone: "+91 98990 12345" },
+    ],
   },
   {
     id: "proj-max-128",
@@ -141,6 +149,9 @@ export const INITIAL_PROJECTS: Project[] = [
     totalUnits: 80,
     availableUnitsCount: 18,
     bookedUnitsCount: 62,
+    contacts: [
+      { id: "pc-4", name: "Tarun Gupta (Site Director)", role: "builder", phone: "+91 98188 44556" },
+    ],
   },
 ];
 
@@ -800,4 +811,71 @@ export const INITIAL_ACTIVITIES: Activity[] = [
     createdAt: "2026-08-17T18:00:00Z",
   },
 ];
+
+export const INITIAL_DOCUMENTS: CRMDocument[] = [
+  {
+    id: "doc-1",
+    orgId: "org-dlf-partners",
+    projectId: "proj-dlf-arbour",
+    title: "DLF The Arbour - Official Luxury Master E-Brochure & Floor Specs",
+    fileUrl: "https://dlf.in/the-arbour-brochure.pdf",
+    type: "brochure",
+    createdAt: "2026-08-01T10:00:00Z",
+  },
+  {
+    id: "doc-2",
+    orgId: "org-dlf-partners",
+    projectId: "proj-dlf-arbour",
+    title: "Tower A & B - 4 BHK Penthouse Architectural Floor Plans (3,950 sq ft)",
+    fileUrl: "https://dlf.in/the-arbour-tower-a-floor-plan.pdf",
+    type: "floor_plan",
+    createdAt: "2026-08-02T11:30:00Z",
+  },
+  {
+    id: "doc-3",
+    orgId: "org-dlf-partners",
+    projectId: "proj-dlf-arbour",
+    title: "Standard CLP vs Construction Linked Payment Schedule & GST Breakdown",
+    fileUrl: "https://dlf.in/the-arbour-payment-plan.pdf",
+    type: "cost_sheet",
+    createdAt: "2026-08-05T09:15:00Z",
+  },
+  {
+    id: "doc-4",
+    orgId: "org-dlf-partners",
+    projectId: "proj-max-128",
+    title: "Max Estates 128 Noida - Project Brochure & Club Amenities Spec",
+    fileUrl: "https://maxestates.in/max-128-brochure.pdf",
+    type: "brochure",
+    createdAt: "2026-08-03T14:00:00Z",
+  },
+  {
+    id: "doc-5",
+    orgId: "org-dlf-partners",
+    projectId: "proj-godrej-woods",
+    title: "Godrej Woods Sector 43 - Master Layout & Green Forest Blueprint",
+    fileUrl: "https://godrejproperties.com/godrej-woods-masterplan.pdf",
+    type: "floor_plan",
+    createdAt: "2026-08-04T16:20:00Z",
+  },
+  {
+    id: "doc-6",
+    orgId: "org-dlf-partners",
+    leadId: "lead-101",
+    title: "Rajesh Singhal - PAN & Aadhar KYC Verification Copy",
+    fileUrl: "https://storage.callcrm.in/kyc/rajesh-singhal-kyc.pdf",
+    type: "kyc",
+    createdAt: "2026-08-18T12:00:00Z",
+  },
+  {
+    id: "doc-7",
+    orgId: "org-dlf-partners",
+    leadId: "lead-104",
+    title: "Suresh Gupta - Max Estates 128 Unit T1-1804 Token Cheque & Application",
+    fileUrl: "https://storage.callcrm.in/agreements/suresh-gupta-unit-1804-token.pdf",
+    type: "agreement",
+    createdAt: "2026-08-17T18:30:00Z",
+  },
+];
+
 

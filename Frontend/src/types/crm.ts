@@ -4,6 +4,8 @@ export interface Organization {
   id: string;
   name: string;
   slug: string;
+  plan?: "starter" | "growth" | "enterprise";
+  reactivationDays?: number;
 }
 
 export interface Region {
@@ -28,11 +30,24 @@ export interface User {
   avgResponseTimeHours?: number;
 }
 
+export type ProjectContactRole =
+  | "owner"
+  | "builder"
+  | "architect"
+  | "engineer"
+  | "guard"
+  | "channel_partner"
+  | "other";
+
 export interface ProjectContact {
   id: string;
+  orgId?: string;
+  projectId?: string;
+  personId?: string;
   name: string;
-  role: string;
+  role: ProjectContactRole | string;
   phone: string;
+  notes?: string;
 }
 
 export type UnitStatus =
@@ -86,8 +101,10 @@ export interface Person {
   orgId: string;
   name: string;
   phone: string;
+  phoneNormalized?: string;
   email?: string;
   city?: string;
+  source?: string;
   regionId?: string;
   regionName?: string;
   associatedProjectNames?: string[];
@@ -105,6 +122,15 @@ export type PipelineStage =
   | "won"
   | "lost";
 
+export interface PipelineStageConfig {
+  id: string;
+  orgId: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
+  color?: string;
+}
+
 export type DealHealth = "strong" | "neutral" | "at_risk";
 export type LeadScoreLabel = "Hot" | "Warm" | "Cold";
 
@@ -114,6 +140,7 @@ export interface Lead {
   personId: string;
   personName: string;
   phone: string;
+  phoneNormalized?: string;
   email?: string;
   projectId: string;
   projectName: string;
@@ -123,6 +150,7 @@ export interface Lead {
   salespersonName: string;
   budget: number; // in INR
   stage: PipelineStage;
+  stageId?: string;
   source: string;
   leadScore: number; // e.g. 92
   leadScoreLabel: LeadScoreLabel; // "Hot" | "Warm" | "Cold"
@@ -146,6 +174,7 @@ export interface Lead {
   lastActivityAt: string;
   nextFollowUpAt?: string;
   followUpStatus?: "due_today" | "upcoming" | "overdue" | "completed";
+  lostAt?: string;
   notes?: string;
   createdAt: string;
 }
@@ -171,14 +200,18 @@ export interface Activity {
   id: string;
   orgId: string;
   leadId: string;
+  projectId?: string;
+  personId?: string;
   personName: string;
   userId: string;
   userName: string;
   type: ActivityType;
+  durationSeconds?: number;
   outcome?: CallOutcome;
   outcomeLabel?: string;
   notes?: string;
   scheduledFollowUpAt?: string;
+  occurredAt?: string;
   createdAt: string;
 }
 
@@ -196,6 +229,18 @@ export interface Task {
   dueTime?: string;
   status: "due_today" | "upcoming" | "overdue" | "completed";
   priority: "high" | "medium" | "low";
+  createdFromActivityId?: string;
+}
+
+export interface CRMDocument {
+  id: string;
+  orgId: string;
+  projectId?: string;
+  leadId?: string;
+  title: string;
+  fileUrl: string;
+  type: "brochure" | "floor_plan" | "cost_sheet" | "kyc" | "agreement" | "photo" | "other";
+  createdAt: string;
 }
 
 export interface AuditLog {
@@ -204,7 +249,8 @@ export interface AuditLog {
   userId: string;
   userName: string;
   action: string;
+  entityType?: string;
+  entityId?: string;
   details: string;
   timestamp: string;
 }
-

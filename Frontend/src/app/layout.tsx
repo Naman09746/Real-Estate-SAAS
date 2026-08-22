@@ -3,7 +3,6 @@ import { Inter, Fraunces, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/auth-context";
 import { CRMProvider } from "@/context/crm-context";
-import { QueryProvider } from "@/components/providers/query-provider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -40,11 +39,9 @@ export default function RootLayout({
       className={`${inter.variable} ${fraunces.variable} ${ibmPlexMono.variable} h-full scroll-smooth`}
     >
       <body className="min-h-full bg-background font-sans text-foreground antialiased flex flex-col">
-        <QueryProvider>
-          <AuthProvider>
-            <CRMProvider>{children}</CRMProvider>
-          </AuthProvider>
-        </QueryProvider>
+        <AuthProvider>
+          <CRMProvider>{children}</CRMProvider>
+        </AuthProvider>
       </body>
     </html>
   );

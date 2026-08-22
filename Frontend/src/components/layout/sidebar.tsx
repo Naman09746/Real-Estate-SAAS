@@ -17,6 +17,8 @@ import {
   Home,
   Shield,
   UserCheck,
+  Bot,
+  Sparkles,
 } from "lucide-react";
 import { useCRM } from "@/context/crm-context";
 import { cn } from "@/lib/utils";
@@ -30,13 +32,14 @@ interface SidebarProps {
 
 export function Sidebar({ className, activeTab, onSelectTab }: SidebarProps) {
   const pathname = usePathname();
-  const { currentUser, switchRole } = useCRM();
+  const { currentUser } = useCRM();
 
   // Role-Aware Navigation
   const isBoss = currentUser.role === "boss";
 
   const bossNavItems = [
     { id: "overview", label: "Overview", href: "/", icon: LayoutDashboard },
+    { id: "ai-agent", label: "Aria AI Agent", href: "/agent-live", icon: Bot, highlight: true },
     { id: "leads", label: "Leads", href: "/leads", icon: Users },
     { id: "pipeline", label: "Pipeline", href: "/pipeline", icon: Kanban },
     { id: "people", label: "People", href: "/people", icon: Contact },
@@ -54,6 +57,7 @@ export function Sidebar({ className, activeTab, onSelectTab }: SidebarProps) {
 
   const salespersonNavItems = [
     { id: "overview", label: "Home", href: "/", icon: Home },
+    { id: "ai-agent", label: "Aria AI Agent", href: "/agent-live", icon: Bot, highlight: true },
     { id: "leads", label: "My Leads", href: "/leads", icon: Users },
     { id: "tasks", label: "Follow-ups", href: "/tasks", icon: ListTodo },
     { id: "projects", label: "Projects", href: "/projects", icon: Building2 },
@@ -112,14 +116,21 @@ export function Sidebar({ className, activeTab, onSelectTab }: SidebarProps) {
                 href={item.href}
                 onClick={(e) => handleNavClick(item.id, e)}
                 className={cn(
-                  "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                  "flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                   isActive
                     ? "bg-secondary text-foreground font-semibold shadow-subtle"
                     : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
                 )}
               >
-                <Icon className="h-4 w-4 shrink-0 stroke-[1.75]" />
-                <span>{item.label}</span>
+                <div className="flex items-center gap-2.5">
+                  <Icon className={cn("h-4 w-4 shrink-0 stroke-[1.75]", item.highlight && "text-indigo-600 dark:text-indigo-400")} />
+                  <span>{item.label}</span>
+                </div>
+                {item.highlight && (
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30">
+                    LIVE
+                  </span>
+                )}
               </a>
             );
           })}
@@ -156,40 +167,19 @@ export function Sidebar({ className, activeTab, onSelectTab }: SidebarProps) {
         </div>
       </div>
 
-      {/* Role Switching / Perspective Toggle (Live Testing Widget) */}
+      {/* Current User Identity (display only — roles come from the server profile) */}
       <div className="p-3 border-t border-border bg-secondary/30 space-y-2">
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
-          Switch User Role
+          Signed in as
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5">
-          <button
-            type="button"
-            onClick={() => switchRole("boss")}
-            className={cn(
-              "flex items-center justify-center gap-1.5 py-1 px-2 rounded text-[11px] font-medium border transition-all",
-              isBoss
-                ? "bg-primary text-primary-foreground border-primary shadow-subtle font-semibold"
-                : "bg-card text-muted-foreground border-border hover:text-foreground"
-            )}
-          >
-            <Shield className="h-3 w-3" />
-            Boss
-          </button>
-
-          <button
-            type="button"
-            onClick={() => switchRole("salesperson")}
-            className={cn(
-              "flex items-center justify-center gap-1.5 py-1 px-2 rounded text-[11px] font-medium border transition-all",
-              !isBoss
-                ? "bg-primary text-primary-foreground border-primary shadow-subtle font-semibold"
-                : "bg-card text-muted-foreground border-border hover:text-foreground"
-            )}
-          >
-            <UserCheck className="h-3 w-3" />
-            Sales
-          </button>
+        <div className="flex items-center gap-1.5 py-1 px-2 rounded text-[11px] font-medium bg-card text-foreground border border-border">
+          {isBoss ? (
+            <Shield className="h-3 w-3 shrink-0" />
+          ) : (
+            <UserCheck className="h-3 w-3 shrink-0" />
+          )}
+          <span className="capitalize">{currentUser.role}</span>
         </div>
 
         <div className="text-[10px] text-muted-foreground text-center pt-0.5">

@@ -28,6 +28,8 @@ import { Badge } from "@/components/ui/badge";
 import { PipelineBadge, TaskStatusBadge, DealHealthBadge, LeadScoreBadge } from "@/components/ui/status-badge";
 import { formatCurrencyINR, formatPhone } from "@/lib/utils";
 import { Lead, PipelineStage } from "@/types/crm";
+import { AiResurrectionModal } from "@/components/crm/ai-resurrection-modal";
+import { actionCardProps } from "@/components/ui/action-card";
 
 export function BossOverview({
   onSelectLead,
@@ -51,85 +53,138 @@ export function BossOverview({
     dateRange,
     setDateRange,
     updateLeadStage,
+    reactivateLead,
+    reactivationLeads,
   } = useCRM();
 
   const [activeStageFilter, setActiveStageFilter] = React.useState<PipelineStage | "all">("all");
+  const [resurrectionModalOpen, setResurrectionModalOpen] = React.useState(false);
+  const [resurrectionTargetLeadId, setResurrectionTargetLeadId] = React.useState<string | undefined>();
 
-  // Calculate Real KPI Metrics based on filtered data
-  const totalLeads = filteredLeads.length;
-  const openLeads = filteredLeads.filter((l) => l.stage !== "won" && l.stage !== "lost").length;
-  const siteVisits = filteredLeads.filter((l) => l.stage === "site_visit").length;
-  const wonDeals = filteredLeads.filter((l) => l.stage === "won").length;
-  const followUpsDue = filteredLeads.filter((l) => l.followUpStatus === "due_today" || l.followUpStatus === "overdue").length;
-  const overdueCount = filteredLeads.filter((l) => l.followUpStatus === "overdue").length;
-  const totalPipelineValue = filteredLeads.reduce((acc, curr) => acc + (curr.budget || 0), 0);
-  const wonValue = filteredLeads.filter((l) => l.stage === "won").reduce((acc, curr) => acc + (curr.budget || 0), 0);
+  // Date-range aware lead set — makes the date selector actually filter KPIs.
+  const rangedLeads = React.useMemo(() => {
+    if (dateRange === "all") return filteredLeads;
+    const now = new Date();
+    let start: Date;
+    if (dateRange === "last_30_days") {
+      start = new Date(now.getTime() - 30 * 864e5);
+    } else if (dateRange === "this_quarter") {
+      start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    } else {
+      // this_month
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+    return filteredLeads.filter((l) => {
+      const t = new Date(l.createdAt || l.lastActivityAt).getTime();
+      return Number.isFinite(t) && t >= start.getTime();
+    });
+  }, [filteredLeads, dateRange]);
+
+  // Calculate Real KPI Metrics based on filtered + date-ranged data
+  const totalLeads = rangedLeads.length;
+  const openLeads = rangedLeads.filter((l) => l.stage !== "won" && l.stage !== "lost").length;
+  const siteVisits = rangedLeads.filter((l) => l.stage === "site_visit").length;
+  const wonDeals = rangedLeads.filter((l) => l.stage === "won").length;
+  const followUpsDue = rangedLeads.filter((l) => l.followUpStatus === "due_today" || l.followUpStatus === "overdue").length;
+  const overdueCount = rangedLeads.filter((l) => l.followUpStatus === "overdue").length;
+  const totalPipelineValue = rangedLeads.reduce((acc, curr) => acc + (curr.budget || 0), 0);
+  const wonValue = rangedLeads.filter((l) => l.stage === "won").reduce((acc, curr) => acc + (curr.budget || 0), 0);
+
+  // Real inflow momentum: leads added in the last 30 days vs the prior 30 days.
+  const inflowMomentum = React.useMemo(() => {
+    const nowTs = Date.now();
+    const d30 = nowTs - 30 * 864e5;
+    const d60 = nowTs - 60 * 864e5;
+    const recent = filteredLeads.filter((l) => {
+      const t = new Date(l.createdAt).getTime();
+      return Number.isFinite(t) && t >= d30;
+    }).length;
+    const prior = filteredLeads.filter((l) => {
+      const t = new Date(l.createdAt).getTime();
+      return Number.isFinite(t) && t < d30 && t >= d60;
+    }).length;
+    if (prior === 0) return recent > 0 ? "new" : null;
+    const pct = Math.round(((recent - prior) / prior) * 100);
+    return `${pct >= 0 ? "+" : ""}${pct}%`;
+  }, [filteredLeads]);
+
+  // Real average days-in-stage per pipeline stage.
+  const avgDaysByStage = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const stage of ["new", "contacted", "qualified", "site_visit", "negotiation", "won", "lost"]) {
+      const stageLeads = filteredLeads.filter((l) => l.stage === stage);
+      map[stage] = stageLeads.length
+        ? Math.round(stageLeads.reduce((a, c) => a + (c.daysInStage || 0), 0) / stageLeads.length)
+        : 0;
+    }
+    return map;
+  }, [filteredLeads]);
 
   const salespeople = users.filter((u) => u.role === "salesperson");
 
   // Needs Attention Items
-  const overdueLeads = filteredLeads.filter((l) => l.followUpStatus === "overdue");
-  const atRiskDeals = filteredLeads.filter((l) => l.dealHealth === "at_risk");
-  const upcomingSiteVisits = filteredLeads.filter((l) => l.stage === "site_visit");
-  const stagnantNegotiations = filteredLeads.filter((l) => l.stage === "negotiation" && l.daysInStage >= 3);
+  const overdueLeads = rangedLeads.filter((l) => l.followUpStatus === "overdue");
+  const atRiskDeals = rangedLeads.filter((l) => l.dealHealth === "at_risk");
+  const upcomingSiteVisits = rangedLeads.filter((l) => l.stage === "site_visit");
+  const stagnantNegotiations = rangedLeads.filter((l) => l.stage === "negotiation" && l.daysInStage >= 3);
 
-  // Stage breakdown counts & values
+  // Stage breakdown counts & values (avgDays computed from live data)
   const stages: { key: PipelineStage; label: string; count: number; value: number; color: string; avgDays: number }[] = [
     {
       key: "new",
       label: "New Inflow",
-      count: filteredLeads.filter((l) => l.stage === "new").length,
-      value: filteredLeads.filter((l) => l.stage === "new").reduce((a, c) => a + c.budget, 0),
+      count: rangedLeads.filter((l) => l.stage === "new").length,
+      value: rangedLeads.filter((l) => l.stage === "new").reduce((a, c) => a + c.budget, 0),
       color: "bg-slate-500",
-      avgDays: 1,
+      avgDays: avgDaysByStage.new,
     },
     {
       key: "contacted",
       label: "Contacted",
-      count: filteredLeads.filter((l) => l.stage === "contacted").length,
-      value: filteredLeads.filter((l) => l.stage === "contacted").reduce((a, c) => a + c.budget, 0),
+      count: rangedLeads.filter((l) => l.stage === "contacted").length,
+      value: rangedLeads.filter((l) => l.stage === "contacted").reduce((a, c) => a + c.budget, 0),
       color: "bg-blue-600",
-      avgDays: 2,
+      avgDays: avgDaysByStage.contacted,
     },
     {
       key: "qualified",
       label: "Qualified",
-      count: filteredLeads.filter((l) => l.stage === "qualified").length,
-      value: filteredLeads.filter((l) => l.stage === "qualified").reduce((a, c) => a + c.budget, 0),
+      count: rangedLeads.filter((l) => l.stage === "qualified").length,
+      value: rangedLeads.filter((l) => l.stage === "qualified").reduce((a, c) => a + c.budget, 0),
       color: "bg-indigo-600",
-      avgDays: 5,
+      avgDays: avgDaysByStage.qualified,
     },
     {
       key: "site_visit",
       label: "Site Visit",
-      count: filteredLeads.filter((l) => l.stage === "site_visit").length,
-      value: filteredLeads.filter((l) => l.stage === "site_visit").reduce((a, c) => a + c.budget, 0),
+      count: rangedLeads.filter((l) => l.stage === "site_visit").length,
+      value: rangedLeads.filter((l) => l.stage === "site_visit").reduce((a, c) => a + c.budget, 0),
       color: "bg-amber-600",
-      avgDays: 3,
+      avgDays: avgDaysByStage.site_visit,
     },
     {
       key: "negotiation",
       label: "Negotiation",
-      count: filteredLeads.filter((l) => l.stage === "negotiation").length,
-      value: filteredLeads.filter((l) => l.stage === "negotiation").reduce((a, c) => a + c.budget, 0),
+      count: rangedLeads.filter((l) => l.stage === "negotiation").length,
+      value: rangedLeads.filter((l) => l.stage === "negotiation").reduce((a, c) => a + c.budget, 0),
       color: "bg-purple-600",
-      avgDays: 4,
+      avgDays: avgDaysByStage.negotiation,
     },
     {
       key: "won",
       label: "Deals Closed",
-      count: filteredLeads.filter((l) => l.stage === "won").length,
-      value: filteredLeads.filter((l) => l.stage === "won").reduce((a, c) => a + c.budget, 0),
+      count: rangedLeads.filter((l) => l.stage === "won").length,
+      value: rangedLeads.filter((l) => l.stage === "won").reduce((a, c) => a + c.budget, 0),
       color: "bg-emerald-600",
-      avgDays: 12,
+      avgDays: avgDaysByStage.won,
     },
     {
       key: "lost",
       label: "Lost / Stalled",
-      count: filteredLeads.filter((l) => l.stage === "lost").length,
-      value: filteredLeads.filter((l) => l.stage === "lost").reduce((a, c) => a + c.budget, 0),
+      count: rangedLeads.filter((l) => l.stage === "lost").length,
+      value: rangedLeads.filter((l) => l.stage === "lost").reduce((a, c) => a + c.budget, 0),
       color: "bg-rose-500",
-      avgDays: 8,
+      avgDays: avgDaysByStage.lost,
     },
   ];
 
@@ -154,9 +209,10 @@ export function BossOverview({
             onChange={(e) => setDateRange(e.target.value)}
             className="h-8 px-2.5 rounded-md border border-border bg-secondary/50 text-foreground font-medium focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer hover:bg-secondary"
           >
-            <option value="this_month">This Month (Aug 2026)</option>
+            <option value="this_month">This Month</option>
             <option value="last_30_days">Last 30 Days</option>
-            <option value="this_quarter">Q3 2026</option>
+            <option value="this_quarter">This Quarter</option>
+            <option value="all">All Time</option>
           </select>
 
           {/* Region Selector */}
@@ -264,8 +320,8 @@ export function BossOverview({
 
           {/* At-Risk High Value Deal */}
           <div
-            onClick={() => atRiskDeals[0] && onSelectLead(atRiskDeals[0])}
-            className="p-3 rounded-lg border border-orange-200 bg-card hover:bg-orange-50/40 cursor-pointer transition-colors space-y-1"
+            {...actionCardProps(() => atRiskDeals[0] && onSelectLead(atRiskDeals[0]), "Open highest-value deal at risk")}
+            className="p-3 rounded-lg border border-orange-200 bg-card hover:bg-orange-50/40 cursor-pointer transition-colors space-y-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex items-center justify-between">
               <span className="font-bold text-orange-800 flex items-center gap-1.5">
@@ -328,7 +384,12 @@ export function BossOverview({
           </span>
           <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">{totalLeads}</div>
           <div className="text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
-            <span className="text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded font-bold">+18%</span> vs prev mo
+            {inflowMomentum && (
+              <span className={`px-1 py-0.2 rounded font-bold ${inflowMomentum.startsWith("-") ? "text-rose-700 bg-rose-50" : "text-emerald-700 bg-emerald-50"}`}>
+                {inflowMomentum}
+              </span>
+            )}
+            vs prev 30d
           </div>
         </Card>
 
@@ -409,8 +470,8 @@ export function BossOverview({
             {atRiskDeals.map((lead) => (
               <div
                 key={lead.id}
-                onClick={() => onSelectLead(lead)}
-                className="p-3.5 rounded-xl border border-rose-200 bg-rose-50/30 hover:border-rose-300 cursor-pointer space-y-2 text-xs transition-all"
+                {...actionCardProps(() => onSelectLead(lead), `Open at-risk lead ${lead.personName}`)}
+                className="p-3.5 rounded-xl border border-rose-200 bg-rose-50/30 hover:border-rose-300 cursor-pointer space-y-2 text-xs transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex items-start justify-between">
                   <div>
@@ -461,6 +522,83 @@ export function BossOverview({
                       WhatsApp
                     </a>
                   </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Lost-Lead Reactivation Radar (Speed-to-Lead Engine) */}
+      {reactivationLeads.length > 0 && (
+        <Card className="p-4 sm:p-5 border-amber-300 bg-amber-50/30 dark:bg-amber-950/20 space-y-3 shadow-subtle">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-400">
+                <Flame className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">
+                  Lost-Lead AI Resurrection Radar ({reactivationLeads.length} High-Ticket Opportunities)
+                </h3>
+                <p className="text-[11px] text-muted-foreground">
+                  AI scans dormant leads, cross-references newly available units & price drops, and auto-generates conversion pitches.
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => {
+                setResurrectionTargetLeadId(reactivationLeads[0]?.id);
+                setResurrectionModalOpen(true);
+              }}
+              className="h-8 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white gap-1.5 shadow-subtle shrink-0"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Open AI Resurrection Engine
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {reactivationLeads.slice(0, 3).map((lead) => (
+              <div
+                key={lead.id}
+                className="p-3 rounded-xl border border-border bg-card space-y-2 text-xs hover:border-amber-400 transition-colors"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="font-bold text-foreground">{lead.personName}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {lead.projectName} • {lead.regionName}
+                    </div>
+                  </div>
+                  <span className="font-bold text-foreground font-mono">
+                    {formatCurrencyINR(lead.budget)}
+                  </span>
+                </div>
+
+                <div className="p-2 rounded bg-secondary/40 text-[11px] space-y-0.5">
+                  <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-400 block">AI Resurrection Match:</span>
+                  <p className="text-foreground/90 font-medium leading-tight line-clamp-2">
+                    {lead.recommendedAction || "Matched with newly released high-floor units at " + lead.projectName}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    {lead.daysInStage}d dormant
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setResurrectionTargetLeadId(lead.id);
+                      setResurrectionModalOpen(true);
+                    }}
+                    className="h-6 text-[11px] font-bold bg-amber-600 hover:bg-amber-700 text-white gap-1"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Resurrect
+                  </Button>
                 </div>
               </div>
             ))}
@@ -563,8 +701,8 @@ export function BossOverview({
             {displayedOpportunities.map((lead) => (
               <div
                 key={lead.id}
-                onClick={() => onSelectLead(lead)}
-                className="p-4 rounded-xl border border-border bg-card hover:border-border/90 cursor-pointer shadow-subtle hover:shadow-card transition-all space-y-3"
+                {...actionCardProps(() => onSelectLead(lead), `Open opportunity ${lead.personName}`)}
+                className="p-4 rounded-xl border border-border bg-card hover:border-border/90 cursor-pointer shadow-subtle hover:shadow-card transition-all space-y-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-1">
@@ -640,7 +778,7 @@ export function BossOverview({
                 <div className="font-semibold text-foreground">{act.personName}</div>
                 {act.notes && (
                   <p className="text-[11px] text-muted-foreground leading-relaxed bg-secondary/30 p-1.5 rounded">
-                    "{act.notes}"
+                    &ldquo;{act.notes}&rdquo;
                   </p>
                 )}
                 <div className="text-[10px] text-muted-foreground flex items-center justify-between pt-0.5">
@@ -654,6 +792,13 @@ export function BossOverview({
           </Card>
         </div>
       </div>
+
+      {/* Autonomous Lost-Lead Resurrection Modal */}
+      <AiResurrectionModal
+        open={resurrectionModalOpen}
+        onOpenChange={setResurrectionModalOpen}
+        defaultLeadId={resurrectionTargetLeadId}
+      />
     </div>
   );
 }

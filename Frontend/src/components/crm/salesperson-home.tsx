@@ -50,6 +50,14 @@ export function SalespersonHome({
   const upcomingTasks = filteredTasks.filter((t) => t.status === "upcoming");
   const completedTasks = filteredTasks.filter((t) => t.status === "completed");
 
+  // Real follow-up closure rate: completed vs all closed-or-breached commitments.
+  const slaRate = React.useMemo(() => {
+    const denominator = completedTasks.length + overdueTasks.length;
+    if (denominator === 0) return null;
+    return Math.round((completedTasks.length / denominator) * 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredTasks]);
+
   // Scheduled site visits
   const siteVisitLeads = filteredLeads.filter((l) => l.stage === "site_visit");
 
@@ -213,8 +221,10 @@ export function SalespersonHome({
             </span>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-bold text-emerald-600 font-mono">96%</span>
-            <span className="text-[10px] text-muted-foreground block">&lt; 15 min first touch</span>
+            <span className={`text-2xl font-bold font-mono ${slaRate === null ? "text-muted-foreground" : slaRate >= 90 ? "text-emerald-600" : slaRate >= 70 ? "text-amber-600" : "text-rose-600"}`}>
+              {slaRate === null ? "—" : `${slaRate}%`}
+            </span>
+            <span className="text-[10px] text-muted-foreground block">Follow-ups closed</span>
           </div>
         </div>
       </div>
@@ -302,7 +312,7 @@ export function SalespersonHome({
                           Last interaction:
                         </span>
                         <p className="text-muted-foreground text-[11px] leading-relaxed italic">
-                          "{lead.lastConversationSummary}"
+                          &ldquo;{lead.lastConversationSummary}&rdquo;
                         </p>
                       </div>
                     )}
@@ -366,14 +376,14 @@ export function SalespersonHome({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-amber-600" />
-              <h2 className="text-sm font-bold text-foreground">Today's Sales Timeline</h2>
+              <h2 className="text-sm font-bold text-foreground">Today&apos;s Sales Timeline</h2>
             </div>
             <span className="text-xs text-muted-foreground font-mono">{timelineQueue.length} Scheduled</span>
           </div>
 
           <div className="p-4 rounded-xl border border-border bg-card shadow-subtle space-y-3">
             <p className="text-[11px] text-muted-foreground pb-2 border-b border-border">
-              Structured queue of today's customer touchpoints. Complete each item with 1-click.
+              Structured queue of today&apos;s customer touchpoints. Complete each item with 1-click.
             </p>
 
             <div className="relative pl-4 space-y-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">

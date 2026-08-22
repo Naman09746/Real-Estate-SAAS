@@ -20,6 +20,8 @@ export function formatCurrencyINR(amount: number | null | undefined): string {
   }).format(amount);
 }
 
+export const formatINR = formatCurrencyINR;
+
 export function formatPhone(phone: string | null | undefined): string {
   if (!phone) return "—";
   const cleaned = phone.replace(/\D/g, "");
@@ -31,3 +33,22 @@ export function formatPhone(phone: string | null | undefined): string {
   }
   return phone;
 }
+
+export function normalizePhone(phone: string | null | undefined): string {
+  if (!phone) return "";
+  const cleaned = phone.replace(/\D/g, "");
+  if (cleaned.length === 10) {
+    return `+91${cleaned}`;
+  }
+  if (cleaned.length === 11 && cleaned.startsWith("0")) {
+    return `+91${cleaned.slice(1)}`;
+  }
+  if (cleaned.length === 12 && cleaned.startsWith("91")) {
+    return `+${cleaned}`;
+  }
+  if (cleaned.length > 10) {
+    return `+${cleaned}`;
+  }
+  return phone.trim();
+}
+

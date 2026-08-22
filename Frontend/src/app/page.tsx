@@ -1049,7 +1049,7 @@ export default function LandingPage() {
                       <Star key={i} className="h-4 w-4 fill-brass text-brass" />
                     ))}
                   </div>
-                  <p className="text-xs text-slate-700 leading-relaxed italic">"{t.quote}"</p>
+                  <p className="text-xs text-slate-700 leading-relaxed italic">&ldquo;{t.quote}&rdquo;</p>
                 </div>
                 <div className="border-t border-architecturalLine pt-3">
                   <p className="font-bold text-xs text-ink">{t.role}</p>
@@ -1095,7 +1095,7 @@ export default function LandingPage() {
               {mobileBetaSubmitted ? (
                 <div className="p-3 bg-verdigris/40 border border-verdigris rounded-xl text-xs text-verdigris-light flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span>Verified! You've been added to our Mobile Beta Early Access list.</span>
+                  <span>Verified! You&apos;ve been added to our Mobile Beta Early Access list.</span>
                 </div>
               ) : (
                 <form onSubmit={handleMobileBetaSubmit} className="flex flex-col sm:flex-row items-stretch gap-2 max-w-md">

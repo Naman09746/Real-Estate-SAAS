@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/top-bar";
 import { useCRM } from "@/context/crm-context";
+import { useAuth } from "@/context/auth-context";
 import { BossOverview } from "@/components/crm/boss-overview";
 import { SalespersonHome } from "@/components/crm/salesperson-home";
 import { PipelineBoard } from "@/components/crm/pipeline-board";
@@ -11,6 +13,7 @@ import { QuickActivityModal } from "@/components/crm/quick-activity-modal";
 import { GlobalSearchDialog } from "@/components/crm/global-search-dialog";
 import { LeadDetailModal } from "@/components/crm/lead-detail-modal";
 import { Lead } from "@/types/crm";
+import { Loader2 } from "lucide-react";
 import {
   Home as HomeIcon,
   Users,
@@ -25,31 +28,50 @@ import {
   MapPin,
   Settings,
 } from "lucide-react";
-import LeadsPage from "@/app/leads/page";
-import ReportsPage from "@/app/reports/page";
-import ProjectsPage from "@/app/projects/page";
-import PeoplePage from "@/app/people/page";
-import ActivitiesPage from "@/app/activities/page";
-import UsersPage from "@/app/users/page";
-import RegionsPage from "@/app/regions/page";
-import SettingsPage from "@/app/settings/page";
-import TasksPage from "@/app/tasks/page";
+import { LeadsPage } from "@/components/crm/pages/leads-page";
+import { ReportsPage } from "@/components/crm/pages/reports-page";
+import { ProjectsPage } from "@/components/crm/pages/projects-page";
+import { PeoplePage } from "@/components/crm/pages/people-page";
+import { ActivitiesPage } from "@/components/crm/pages/activities-page";
+import { UsersPage } from "@/components/crm/pages/users-page";
+import { RegionsPage } from "@/components/crm/pages/regions-page";
+import { SettingsPage } from "@/components/crm/pages/settings-page";
+import { TasksPage } from "@/components/crm/pages/tasks-page";
+import { AiAgentCommandCenter } from "@/components/crm/ai-agent-command-center";
+import { AiLeadBot } from "@/components/crm/ai-lead-bot";
 
-export function AppShell() {
-  const { currentUser } = useCRM();
+export function AppShell({ initialTab }: { initialTab?: string }) {
+  const router = useRouter();
+  const { currentUser, leads } = useCRM();
+  const { user, workflowStep, isLoading: authLoading } = useAuth();
   const isBoss = currentUser.role === "boss";
 
+  // Auth & onboarding gating — every CRM route shares this contract.
+  React.useEffect(() => {
+    if (authLoading) return;
+    if (!user || workflowStep === "auth") {
+      router.replace("/login");
+    } else if (workflowStep === "org") {
+      router.replace("/setup-org");
+    } else if (workflowStep === "plan") {
+      router.replace("/choose-plan");
+    } else if (workflowStep === "onboarding") {
+      router.replace("/onboarding");
+    }
+  }, [user, workflowStep, authLoading, router]);
+
   // Navigation State with localStorage persistence
-  const [activeTab, setActiveTabState] = React.useState<string>("overview");
+  const [activeTab, setActiveTabState] = React.useState<string>(initialTab || "overview");
 
   React.useEffect(() => {
+    if (initialTab) return; // deep-linked tab wins over persisted state
     try {
       const savedTab = localStorage.getItem("callcrm_active_tab");
       if (savedTab) {
         setActiveTabState(savedTab);
       }
     } catch {}
-  }, []);
+  }, [initialTab]);
 
   const setActiveTab = (tab: string) => {
     setActiveTabState(tab);
@@ -115,6 +137,18 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [quickLogOpen, detailOpen, searchOpen, mobileMenuOpen]);
 
+  // Gate rendering until the session + onboarding workflow are resolved.
+  if (authLoading || !user || workflowStep !== "app") {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm font-medium">Loading sales cockpit...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden selection:bg-primary/10">
       {/* Desktop Persistent Sidebar */}
@@ -165,6 +199,10 @@ export function AppShell() {
             )
           )}
 
+          {activeTab === "ai-agent" && (
+            <AiAgentCommandCenter onSelectLead={handleOpenLead} />
+          )}
+
           {activeTab === "leads" && <LeadsPage />}
 
           {activeTab === "pipeline" && (
@@ -184,9 +222,13 @@ export function AppShell() {
         </main>
 
         {/* Mobile Bottom Navigation (1-Thumb Reachability) */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 border-t border-border bg-card/95 backdrop-blur-sm px-4 flex items-center justify-around z-40">
+        <nav
+          className="md:hidden fixed bottom-0 left-0 right-0 h-14 border-t border-border bg-card/95 backdrop-blur-sm px-4 flex items-center justify-around z-40"
+          aria-label="Primary"
+        >
           <button
             onClick={() => setActiveTab("overview")}
+            aria-current={activeTab === "overview" ? "page" : undefined}
             className={`flex flex-col items-center gap-1 text-[10px] font-medium ${
               activeTab === "overview" ? "text-primary font-bold" : "text-muted-foreground"
             }`}
@@ -197,6 +239,7 @@ export function AppShell() {
 
           <button
             onClick={() => setActiveTab("leads")}
+            aria-current={activeTab === "leads" ? "page" : undefined}
             className={`flex flex-col items-center gap-1 text-[10px] font-medium ${
               activeTab === "leads" ? "text-primary font-bold" : "text-muted-foreground"
             }`}
@@ -217,6 +260,7 @@ export function AppShell() {
 
           <button
             onClick={() => setActiveTab("pipeline")}
+            aria-current={activeTab === "pipeline" ? "page" : undefined}
             className={`flex flex-col items-center gap-1 text-[10px] font-medium ${
               activeTab === "pipeline" ? "text-primary font-bold" : "text-muted-foreground"
             }`}
@@ -227,6 +271,7 @@ export function AppShell() {
 
           <button
             onClick={() => setActiveTab("reports")}
+            aria-current={activeTab === "reports" ? "page" : undefined}
             className={`flex flex-col items-center gap-1 text-[10px] font-medium ${
               activeTab === "reports" ? "text-primary font-bold" : "text-muted-foreground"
             }`}
@@ -234,7 +279,7 @@ export function AppShell() {
             <ChartNoAxesCombined className="h-4 w-4" />
             <span>Reports</span>
           </button>
-        </div>
+        </nav>
       </div>
 
       {/* Global Interactive Modals */}
@@ -257,6 +302,14 @@ export function AppShell() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         onLogActivity={(id) => handleOpenQuickLog(id)}
+      />
+
+      {/* Floating Autonomous Lead Qualification Agent (Aria) */}
+      <AiLeadBot
+        onOpenLeadDetail={(leadId) => {
+          const lead = leads.find((l) => l.id === leadId);
+          if (lead) handleOpenLead(lead);
+        }}
       />
     </div>
   );

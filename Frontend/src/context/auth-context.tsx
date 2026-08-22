@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { UserRole } from "@/types/crm";
 
@@ -38,13 +39,13 @@ interface AuthContextType {
   isLoading: boolean;
   isConfigured: boolean;
   onboardingData: OnboardingData;
-  
+
   // Actions
   signUp: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
-  
+
   saveOrgSetup: (orgData: { name: string; teamSize: string; primaryRegion: string }) => void;
   selectPlan: (plan: "starter" | "growth" | "enterprise", billingCycle: "monthly" | "yearly") => void;
   completeOnboardingStep: (step: "leads" | "team" | "pipeline", payload?: any) => void;
@@ -55,12 +56,49 @@ interface AuthContextType {
 
 const AuthContext = React.createContext<AuthContextType | undefined>(undefined);
 
+// Non-security UI state only. Identity/session NEVER comes from here.
 const STORAGE_KEYS = {
-  USER: "callcrm_auth_user",
   ORG: "callcrm_auth_org",
   STEP: "callcrm_workflow_step",
   ONBOARDING: "callcrm_onboarding_data",
-};
+} as const;
+
+// Map server-side profile roles to the three client-facing perspectives.
+// Authorization is still enforced by RLS + API routes; this is display-only.
+function mapDbRole(dbRole: string | null | undefined): UserRole {
+  if (!dbRole) return "salesperson";
+  if (["owner", "admin", "boss"].includes(dbRole)) return "boss";
+  if (["manager", "closer"].includes(dbRole)) return "manager";
+  return "salesperson";
+}
+
+async function loadProfileUser(
+  supabase: SupabaseClient,
+  sessionUser: { id: string; email?: string; user_metadata?: Record<string, any> }
+): Promise<AuthUser> {
+  const fallbackName =
+    sessionUser.user_metadata?.full_name || sessionUser.email?.split("@")[0] || "User";
+
+  let role: UserRole = "salesperson";
+  try {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", sessionUser.id)
+      .maybeSingle();
+    role = mapDbRole(profile?.role);
+  } catch {
+    // Fail safe to least privilege
+  }
+
+  return {
+    id: sessionUser.id,
+    email: sessionUser.email || "",
+    name: fallbackName,
+    role,
+    avatarUrl: sessionUser.user_metadata?.avatar_url,
+  };
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<AuthUser | null>(null);
@@ -73,8 +111,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     pipelineConfigured: false,
   });
 
-  // Restore session from Supabase or localStorage on mount
+  const lastActiveRef = React.useRef<number>(Date.now());
+
+  // Restore session from Supabase ONLY. Identity is never trusted from localStorage.
   React.useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+
     async function initAuth() {
       setIsLoading(true);
       const supabase = getSupabaseClient();
@@ -82,81 +125,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (supabase && isSupabaseConfigured) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user) {
-            const authUser: AuthUser = {
-              id: session.user.id,
-              email: session.user.email || "",
-              name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "User",
-              role: "boss",
-              avatarUrl: session.user.user_metadata?.avatar_url,
-            };
-            setUser(authUser);
+          if (session?.user && !cancelled) {
+            const authUser = await loadProfileUser(supabase, session.user);
+            if (!cancelled) {
+              setUser(authUser);
+              lastActiveRef.current = Date.now();
+            }
           }
         } catch (e) {
-          console.warn("Supabase auth session fetch failed, fallback to local storage:", e);
+          console.warn("Supabase auth session fetch failed:", e);
         }
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+          if (cancelled) return;
+          if (session?.user) {
+            const authUser = await loadProfileUser(supabase, session.user);
+            if (!cancelled) {
+              setUser(authUser);
+              lastActiveRef.current = Date.now();
+            }
+          } else {
+            if (!cancelled) setUser(null);
+          }
+        });
+
+        unsubscribe = () => subscription.unsubscribe();
       }
 
-      // Restore local state
+      // Restore non-security UI state
       try {
-        const savedUserStr = localStorage.getItem(STORAGE_KEYS.USER);
         const savedOrgStr = localStorage.getItem(STORAGE_KEYS.ORG);
         const savedStep = localStorage.getItem(STORAGE_KEYS.STEP) as WorkflowStep | null;
         const savedOnboardingStr = localStorage.getItem(STORAGE_KEYS.ONBOARDING);
 
-        const parsedUser: AuthUser | null = savedUserStr ? JSON.parse(savedUserStr) : null;
-        const parsedOrg: AuthOrg | null = savedOrgStr ? JSON.parse(savedOrgStr) : null;
-
-        if (parsedUser && !user) {
-          setUser(parsedUser);
-        }
-        if (parsedOrg) {
-          setOrg(parsedOrg);
-        }
-        if (savedStep) {
-          setWorkflowStepState(savedStep);
-        } else if (parsedUser) {
-          setWorkflowStepState(parsedOrg ? (parsedOrg.plan ? "app" : "plan") : "org");
-        }
-        if (savedOnboardingStr) {
-          setOnboardingData(JSON.parse(savedOnboardingStr));
-        }
+        if (savedOrgStr && !cancelled) setOrg(JSON.parse(savedOrgStr));
+        if (savedStep && !cancelled) setWorkflowStepState(savedStep);
+        if (savedOnboardingStr && !cancelled) setOnboardingData(JSON.parse(savedOnboardingStr));
       } catch (e) {
-        console.warn("Could not read auth from localStorage", e);
+        console.warn("Could not read UI state from localStorage", e);
       } finally {
-        setIsLoading(false);
-      }
-
-      // Supabase Auth listener
-      if (supabase && isSupabaseConfigured) {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-          if (session?.user) {
-            const authUser: AuthUser = {
-              id: session.user.id,
-              email: session.user.email || "",
-              name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "User",
-              role: "boss",
-              avatarUrl: session.user.user_metadata?.avatar_url,
-            };
-            setUser(authUser);
-            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(authUser));
-            if (!org) {
-              setWorkflowStepState("org");
-              localStorage.setItem(STORAGE_KEYS.STEP, "org");
-            }
-          } else {
-            // Keep local mock user if Supabase is logged out
-          }
-        });
-
-        return () => {
-          subscription.unsubscribe();
-        };
+        if (!cancelled) setIsLoading(false);
       }
     }
 
     initAuth();
-  }, []);
+
+    // Idle UX timer (45 min). Real enforcement lives in JWT expiry + server checks.
+    const updateActivity = () => {
+      lastActiveRef.current = Date.now();
+    };
+
+    const interval = setInterval(() => {
+      if (user && Date.now() - lastActiveRef.current > 45 * 60 * 1000) {
+        console.warn("[SECURITY] Session marked idle after 45 minutes of inactivity.");
+        signOut();
+      }
+    }, 60000);
+
+    window.addEventListener("mousemove", updateActivity, { passive: true });
+    window.addEventListener("keydown", updateActivity, { passive: true });
+    window.addEventListener("touchstart", updateActivity, { passive: true });
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      unsubscribe?.();
+      window.removeEventListener("mousemove", updateActivity);
+      window.removeEventListener("keydown", updateActivity);
+      window.removeEventListener("touchstart", updateActivity);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const setWorkflowStep = (step: WorkflowStep) => {
     setWorkflowStepState(step);
@@ -167,137 +206,113 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, name: string) => {
     const supabase = getSupabaseClient();
-    
-    if (supabase && isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { full_name: name },
-          },
-        });
-        if (error) {
-          return { success: false, error: error.message };
-        }
-        if (data.user) {
-          const authUser: AuthUser = {
-            id: data.user.id,
-            email: data.user.email || email,
-            name: name,
-            role: "boss",
-          };
-          setUser(authUser);
-          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(authUser));
-          setWorkflowStep("org");
-          return { success: true };
-        }
-      } catch (err: any) {
-        return { success: false, error: err.message || "Failed to sign up" };
-      }
+
+    if (!supabase || !isSupabaseConfigured) {
+      return {
+        success: false,
+        error:
+          "Authentication backend is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
+      };
     }
 
-    // Fallback/Demo instant signup
-    const demoUser: AuthUser = {
-      id: `usr-${Date.now()}`,
-      email,
-      name,
-      role: "boss",
-    };
-    setUser(demoUser);
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(demoUser));
-    setWorkflowStep("org");
-    return { success: true };
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: name },
+          emailRedirectTo: `${typeof window !== "undefined" ? window.location.origin : ""}/login?verified=true`,
+        },
+      });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      // If email confirmation is required by Supabase
+      if (data.user && !data.session) {
+        return {
+          success: true,
+          error: "Verification email sent. Please check your inbox and confirm your email before signing in.",
+        };
+      }
+
+      if (data.user && data.session) {
+        const authUser = await loadProfileUser(supabase, data.user);
+        setUser(authUser);
+        // Org/profile row is provisioned server-side by the handle_new_user trigger.
+        setWorkflowStep(org?.plan ? "app" : org ? "plan" : "org");
+        return { success: true };
+      }
+
+      return { success: false, error: "Sign up did not return a user." };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Failed to sign up" };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
     const supabase = getSupabaseClient();
-    
-    if (supabase && isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) {
-          return { success: false, error: error.message };
-        }
-        if (data.user) {
-          const authUser: AuthUser = {
-            id: data.user.id,
-            email: data.user.email || email,
-            name: data.user.user_metadata?.full_name || email.split("@")[0],
-            role: "boss",
-          };
-          setUser(authUser);
-          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(authUser));
-          // If they already have an org and plan, go to app, else continue setup
-          if (org?.plan) {
-            setWorkflowStep("app");
-          } else if (org) {
-            setWorkflowStep("plan");
-          } else {
-            setWorkflowStep("org");
-          }
-          return { success: true };
-        }
-      } catch (err: any) {
-        return { success: false, error: err.message || "Failed to sign in" };
-      }
+
+    if (!supabase || !isSupabaseConfigured) {
+      return {
+        success: false,
+        error:
+          "Authentication backend is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
+      };
     }
 
-    // Fallback/Demo instant signin
-    const demoUser: AuthUser = {
-      id: `usr-${Date.now()}`,
-      email,
-      name: email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
-      role: "boss",
-    };
-    setUser(demoUser);
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(demoUser));
-    
-    if (org?.plan) {
-      setWorkflowStep("app");
-    } else if (org) {
-      setWorkflowStep("plan");
-    } else {
-      setWorkflowStep("org");
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      if (data.user) {
+        const authUser = await loadProfileUser(supabase, data.user);
+        setUser(authUser);
+        // If they already have an org and plan, go to app, else continue setup
+        if (org?.plan) {
+          setWorkflowStep("app");
+        } else if (org) {
+          setWorkflowStep("plan");
+        } else {
+          setWorkflowStep("org");
+        }
+        return { success: true };
+      }
+      return { success: false, error: "Invalid credentials." };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Failed to sign in" };
     }
-    return { success: true };
   };
 
   const signInWithGoogle = async () => {
     const supabase = getSupabaseClient();
-    
-    if (supabase && isSupabaseConfigured) {
-      try {
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: {
-            redirectTo: `${window.location.origin}/setup-org`,
-          },
-        });
-        if (error) {
-          return { success: false, error: error.message };
-        }
-        return { success: true };
-      } catch (err: any) {
-        return { success: false, error: err.message || "Failed to initialize Google login" };
-      }
+
+    if (!supabase || !isSupabaseConfigured) {
+      return {
+        success: false,
+        error:
+          "Authentication backend is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
+      };
     }
 
-    // Fallback/Demo Google signin
-    const demoUser: AuthUser = {
-      id: `usr-google-${Date.now()}`,
-      email: "partner@realtysaas.in",
-      name: "SaaS Partner",
-      role: "boss",
-      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-    };
-    setUser(demoUser);
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(demoUser));
-    setWorkflowStep("org");
-    return { success: true };
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/setup-org`,
+        },
+      });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Failed to initialize Google login" };
+    }
   };
 
   const signOut = async () => {
@@ -309,36 +324,80 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setOrg(null);
     setWorkflowStep("auth");
     try {
-      localStorage.removeItem(STORAGE_KEYS.USER);
       localStorage.removeItem(STORAGE_KEYS.ORG);
       localStorage.removeItem(STORAGE_KEYS.STEP);
       localStorage.removeItem(STORAGE_KEYS.ONBOARDING);
     } catch {}
   };
 
-  const saveOrgSetup = (orgData: { name: string; teamSize: string; primaryRegion: string }) => {
+  const saveOrgSetup = async (orgData: { name: string; teamSize: string; primaryRegion: string }) => {
+    // Persist the organization name chosen during setup to the real tenant row.
+    let realOrgId = org?.id && !String(org.id).startsWith("local") ? org.id : undefined;
+
+    const supabase = getSupabaseClient();
+    if (supabase && isSupabaseConfigured) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("org_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (profile?.org_id) {
+            realOrgId = profile.org_id;
+            await supabase.from("orgs").update({ name: orgData.name }).eq("id", profile.org_id);
+          }
+        }
+      } catch (e) {
+        console.warn("[AUTH] Could not persist organization setup:", e);
+      }
+    }
+
     const newOrg: AuthOrg = {
-      id: `org-${Date.now()}`,
+      id: realOrgId ?? `local-${Date.now()}`,
       name: orgData.name,
       slug: orgData.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
       teamSize: orgData.teamSize,
       primaryRegion: orgData.primaryRegion,
     };
     setOrg(newOrg);
-    localStorage.setItem(STORAGE_KEYS.ORG, JSON.stringify(newOrg));
+    try {
+      localStorage.setItem(STORAGE_KEYS.ORG, JSON.stringify(newOrg));
+    } catch {}
     setWorkflowStep("plan");
   };
 
-  const selectPlan = (plan: "starter" | "growth" | "enterprise", billingCycle: "monthly" | "yearly") => {
+  const selectPlan = async (
+    plan: "starter" | "growth" | "enterprise",
+    billingCycle: "monthly" | "yearly"
+  ) => {
     if (!org) return;
+    // Persist the selected plan on the tenant row (billing enforcement itself
+    // remains a server-side concern for the payments pass).
+    const supabase = getSupabaseClient();
+    if (supabase && isSupabaseConfigured && org.id && !String(org.id).startsWith("local")) {
+      try {
+        await supabase
+          .from("orgs")
+          .update({ plan })
+          .eq("id", org.id);
+      } catch (e) {
+        console.warn("[AUTH] Could not persist plan selection:", e);
+      }
+    }
+
     const updatedOrg: AuthOrg = {
       ...org,
+      id: String(org.id).startsWith("local") ? `local-${Date.now()}` : org.id,
       plan,
       billingCycle,
       trialActive: true,
     };
     setOrg(updatedOrg);
-    localStorage.setItem(STORAGE_KEYS.ORG, JSON.stringify(updatedOrg));
+    try {
+      localStorage.setItem(STORAGE_KEYS.ORG, JSON.stringify(updatedOrg));
+    } catch {}
     setWorkflowStep("onboarding");
   };
 
@@ -352,7 +411,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (step === "pipeline") {
         updated.pipelineConfigured = true;
       }
-      localStorage.setItem(STORAGE_KEYS.ONBOARDING, JSON.stringify(updated));
+      try {
+        localStorage.setItem(STORAGE_KEYS.ONBOARDING, JSON.stringify(updated));
+      } catch {}
       return updated;
     });
   };
@@ -370,7 +431,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       invitedEmails: [],
       pipelineConfigured: false,
     });
-    localStorage.clear();
+    // Clear only our own keys — never localStorage.clear()
+    try {
+      localStorage.removeItem(STORAGE_KEYS.ORG);
+      localStorage.removeItem(STORAGE_KEYS.STEP);
+      localStorage.removeItem(STORAGE_KEYS.ONBOARDING);
+    } catch {}
   };
 
   return (

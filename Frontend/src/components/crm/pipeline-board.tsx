@@ -153,8 +153,17 @@ export function PipelineBoard({ onSelectLead }: { onSelectLead: (lead: Lead) => 
                   stageLeads.map((lead) => (
                     <div
                       key={lead.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open lead ${lead.personName}`}
                       onClick={() => onSelectLead(lead)}
-                      className={`p-3 rounded-lg border bg-card shadow-subtle hover:border-primary/50 cursor-pointer space-y-2 text-xs transition-all hover:shadow-card ${
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onSelectLead(lead);
+                        }
+                      }}
+                      className={`p-3 rounded-lg border bg-card shadow-subtle hover:border-primary/50 cursor-pointer space-y-2 text-xs transition-all hover:shadow-card focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                         lead.dealHealth === "at_risk" ? "border-red-200" : "border-border"
                       }`}
                     >

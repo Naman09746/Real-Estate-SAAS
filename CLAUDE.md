@@ -7,9 +7,9 @@ This document outlines architectural principles, development commands, design ru
 ## 1. Project Overview & Role
 
 - **Project**: CallCRM for Apex Realty
-- **Domain**: High-ticket Indian luxury real estate sales operating system & daily salesperson cockpit.
+- **Domain**: High-ticket Indian luxury real estate sales operating system & daily salesperson cockpit with Autonomous AI Agents.
 - **Application Directory**: `Frontend/` (Next.js 15 App Router)
-- **Tech Stack**: Next.js 15, React 19, TypeScript, Tailwind CSS, Radix UI Primitives, Lucide React, Supabase client SDK ready.
+- **Tech Stack**: Next.js 15, React 19, TypeScript, Tailwind CSS, Radix UI Primitives, Lucide React, Vercel AI SDK 5 (`ai`, `@ai-sdk/react`), Google Gemini 2.5 Flash (`@ai-sdk/google`), Supabase Realtime client SDK ready.
 
 ---
 
@@ -44,13 +44,12 @@ npm run lint
 1. **Git Policy (CRITICAL)**:
    - **DO NOT commit or push to Git** unless the user explicitly commands it in their prompt (`"commit and push"`).
 2. **Design Language & Visual Identity**:
-   - **Background**: Soft off-white (`#fcfcf9` / `hsl(60, 20%, 98%)`).
+   - **Background**: Soft off-white (`#fcfcf9` / `hsl(60, 20%, 98%)`) with architectural blueprint touches.
    - **Cards & Surfaces**: Clean white (`#ffffff`) with subtle 1px border (`#e8e8e3`) and light box-shadow.
    - **Typography**: Crisp deep navy / charcoal (`#1a1f2c`).
-   - **Prohibited**: Do NOT introduce flashy neon gradients, glassmorphic blur overdrives, dark mode toggles, or unasked dashboard charts.
    - **Card Compactness**: Keep cards relatively compact with readable, dense real-estate metrics.
 3. **Data Reactivity & Synchronization**:
-   - Updates must be end-to-end reactive. When a lead changes stage (e.g. `Qualified → Site Visit`), the change must reflect across `filteredLeads`, stage totals, activity audit stream, timeline queues, and assigned inventory units.
+   - Updates must be end-to-end reactive. When an AI Agent or salesperson modifies a lead (e.g. `Qualified → Site Visit`), the change must reflect across `filteredLeads`, stage totals, activity audit stream, timeline queues, and assigned inventory units.
 4. **Fast 10-Second Interaction Philosophy**:
    - Salesperson workflows must always prioritize speed: `SEE → ACT → LOG → SCHEDULE → MOVE ON`.
    - Modals should provide 1-click presets (`Tomorrow`, `In 3 Days`, `In 1 Week`) and structured outcomes (`Connected`, `Interested`, `Site Visit Booked`, etc.).
@@ -65,6 +64,8 @@ Frontend/src/
 │   ├── layout.tsx                # Inter font, metadata & HTML root
 │   ├── page.tsx                  # App entry wrapping CRMProvider & AppShell
 │   ├── globals.css               # Design system tokens & pastel utilities
+│   ├── agent-live/page.tsx       # Dedicated AI Agent Live Terminal Route
+│   ├── api/chat/route.ts         # Gemini 2.5 Flash Streaming Route & Tools
 │   ├── leads/page.tsx            # Leads Directory (List | Pipeline | Priority)
 │   ├── pipeline/page.tsx         # Enterprise Stage Progression Board
 │   ├── tasks/page.tsx            # Tasks & Scheduled Daily Follow-ups
@@ -76,51 +77,57 @@ Frontend/src/
 │   ├── users/page.tsx            # Team Members & Role Switcher
 │   └── settings/page.tsx         # Organization Preferences
 ├── components/
-│   ├── crm/                      # Core CRM Business Components
-│   │   ├── boss-overview.tsx        # Executive Command Center (Boss Role)
-│   │   ├── salesperson-home.tsx     # Action-First Sales Cockpit (Salesperson Role)
-│   │   ├── quick-activity-modal.tsx # 10s Rapid Disposition Logger
-│   │   ├── lead-detail-modal.tsx    # 360° Customer Dossier
-│   │   ├── global-search-dialog.tsx # Enhanced ⌘K Command Palette
-│   │   └── pipeline-board.tsx       # Drag/Drop Stage Board
+│   ├── crm/                      # Core CRM & AI Agent Components
+│   │   ├── pages/                # Page bodies (route files are thin AppShell wrappers)
+│   │   │   ├── leads-page.tsx          # Leads Directory (List | Pipeline | Priority)
+│   │   │   ├── tasks-page.tsx          # Tasks & Scheduled Daily Follow-ups
+│   │   │   ├── projects-page.tsx       # Project Catalog & Inventory Matrix
+│   │   │   ├── activities-page.tsx     # Immutable Chronological Audit Stream
+│   │   │   ├── reports-page.tsx        # Analytics, Pipeline Value & SLA Charts
+│   │   │   ├── people-page.tsx         # Contact Master Records
+│   │   │   ├── regions-page.tsx        # Regional Hubs (Gurgaon, South Delhi, Noida, Mumbai)
+│   │   │   ├── users-page.tsx          # Team Members & Role Switcher
+│   │   │   └── settings-page.tsx       # Organization Preferences
+│   │   ├── ai-agent-command-center.tsx # Dual-Pane AI Qualification Terminal
+│   │   ├── ai-lead-bot.tsx             # Floating Global AI Intake Widget
+│   │   ├── ai-resurrection-modal.tsx   # Lost-Lead Inventory Cross-Matcher
+│   │   ├── boss-overview.tsx           # Executive Command Center & Lost-Lead Radar
+│   │   ├── salesperson-home.tsx        # Action-First Sales Cockpit
+│   │   ├── quick-activity-modal.tsx    # 10s Rapid Disposition Logger
+│   │   ├── lead-detail-modal.tsx       # 360° Customer Dossier & Document Vault
+│   │   ├── whatsapp-action-modal.tsx   # 1-Click WhatsApp Templating Engine
+│   │   ├── global-search-dialog.tsx    # Enhanced ⌘K Command Palette
+│   │   └── pipeline-board.tsx          # Stage Board (select-based stage changes)
 │   ├── layout/                   # AppShell, Sidebar, TopBar
 │   └── ui/                       # Radix UI Primitives & Status Badges
 ├── context/
-│   └── crm-context.tsx           # Reactive State & localStorage Persistence
+│   └── crm-context.tsx           # Reactive State (filters persist to localStorage; CRM data is in-memory)
 ├── lib/
 │   ├── mock-data.ts              # Seed Database Engine (12 Luxury Projects & Leads)
-│   └── utils.ts                  # Currency (₹ Lakh / Cr), Phone & Formatters
+│   ├── utils.ts                  # Currency (₹ Lakh / Cr), Phone & Formatters
+│   └── queries/crm-queries.ts    # Supabase Realtime Channels & React Query Hooks
 └── types/
     └── crm.ts                    # Domain TypeScript Definitions
 ```
 
 ---
 
-## 5. Domain Entities & TypeScript Types
+## 5. AI Agents & Automation Modules
 
-### `Lead` ([`src/types/crm.ts`](file:///Users/namanjoshi/SAAS/Real-estate/Frontend/src/types/crm.ts))
-- Core customer record containing:
-  - `personName`, `phone`, `email`
-  - `budget` (INR), `projectId`, `projectName`, `regionId`, `regionName`
-  - `stage`: `"new" | "contacted" | "qualified" | "site_visit" | "negotiation" | "won" | "lost"`
-  - `leadScore` (0–100) and `leadScoreLabel` (`"Hot" | "Warm" | "Cold"`)
-  - `dealHealth` (`"strong" | "neutral" | "at_risk"`) and `dealHealthReason`
-  - `configurationPreference`, `preferredFloor`, `facingPreference`, `parkingRequirement`
-  - `buyerIntent`, `decisionMakers`, `buyingSignals[]`, `objections[]`
-  - `lastConversationSummary`, `suggestedNextMove`, `assignedUnitId`, `assignedUnitNumber`
-  - `nextFollowUpAt`, `followUpStatus`: `"due_today" | "upcoming" | "overdue" | "completed"`
+### 1. **Aria — Autonomous Lead Qualification Agent**
+- **Endpoint**: `/api/chat/route.ts` with `streamText` and `@ai-sdk/google`.
+- **Tool**: `qualifyAndCreateLead` — parses budget, micro-market, config, timeline, intent, and calculates lead scores (0–100). The tool has NO server-side execute handler by design: AI-proposed leads are staged and require explicit human approval before any pipeline write.
+- **UI Surfaces**:
+  - `AiAgentCommandCenter` (`/agent-live`): Executive live simulation terminal with real-time execution logs and preset buyer personas.
+  - `AiLeadBot`: Global floating widget with live tool action cards and instant CRM synchronization.
 
-### `ProjectUnit`
-- Inventory unit containing:
-  - `tower`, `unitNumber`, `floor`, `configuration`, `superAreaSqFt`, `price` (INR)
-  - `status`: `"available" | "hold" | "site_visit" | "negotiation" | "booked" | "sold"`
-  - `assignedLeadId`, `assignedLeadName`, `assignedLeadPhone`
+### 2. **Lost-Lead Resurrection Engine**
+- **Component**: `AiResurrectionModal` (`/components/crm/ai-resurrection-modal.tsx`).
+- **Functionality**: Scans dormant leads (`daysInStage >= 14` or `stage === 'lost'`), matches their historical requirements against live project units, selects pitch angles (New Tower, 20:80 Payment Scheme, Price Drop, NRI Reallocation), and generates tailored WhatsApp pitches for 1-click or batch reactivation.
 
-### `Activity`
-- Immutable interaction log:
-  - `type`: `"call" | "whatsapp" | "site_visit" | "meeting" | "note" | "stage_change" | "booking"`
-  - `outcomeLabel`: e.g. `"Interested"`, `"Site Visit Booked"`, `"Negotiating"`, `"No Answer"`
-  - `notes`, `scheduledFollowUpAt`, `createdAt`
+### 3. **WhatsApp Sales Engine**
+- **Component**: `WhatsAppActionModal` (`/components/crm/whatsapp-action-modal.tsx`).
+- **Functionality**: Injects dynamic CRM variables into luxury real estate messaging templates with direct `wa.me/` dispatch and automated activity logging.
 
 ---
 
@@ -136,3 +143,13 @@ Frontend/src/
   - <kbd>F</kbd> — Jump to Tasks / Follow-ups
   - <kbd>/</kbd> or <kbd>⌘K</kbd> — Open Command Palette
   - <kbd>Esc</kbd> — Close any modal or drawer
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files, running grep/glob searches, or answering codebase questions. The graph is your primary map of the codebase.
+- IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
