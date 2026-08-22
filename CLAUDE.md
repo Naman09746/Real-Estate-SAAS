@@ -16,35 +16,36 @@ This document outlines architectural principles, development commands, design ru
 
 ## 2. Essential Commands
 
-All development commands must be run from within the `Frontend/` directory:
+All development commands must be run from within the `Frontend/` directory — or use the root **Makefile** (`make help`):
 
 ```bash
-# Navigate to application folder
-cd Frontend
+# ── Makefile targets (from repo root) ─────────────────────────────
+make install        # npm install (Frontend)
+make dev            # dev server :3000
+make build          # production build + typecheck
+make lint           # ESLint
+make test           # vitest suite (60 tests)
+make test-migrations # DB migration + RLS + quota validation (needs local Postgres)
+make test-e2e       # Playwright browser smoke suite
+make ci             # lint → migrations → tests → build (what CI runs)
+make verify         # ci + e2e
+make docker-build   # production image
+make graphify       # refresh code knowledge graph
 
-# Install dependencies
+# ── Equivalent raw commands (from Frontend/) ──────────────────────
 npm install
-
-# Start local development server (Port 3000)
 npm run dev
-
-# Run production build & verify TypeScript compilation
 npm run build
-
-# Start production server
 npm run start
-
-# Run ESLint validation
 npm run lint
+npm test                 # unit · security · state-machine (60 tests)
+npm run test:migrations  # DB behavior harness (scripts/validate-migrations.mjs)
+npm run test:e2e         # Playwright smoke (e2e/smoke.spec.ts)
 
-# Run the test suite (60 tests: unit, security primitives, state machine)
-npm test
-
-# Build the production Docker image (standalone output)
 docker build -t callcrm:latest .
 ```
 
-**Database**: apply `supabase/migrations/*.sql` in numeric order (0001 → 0006). Migrations are validated against real PostgreSQL and include RLS policies, quota triggers, and org bootstrap logic. Never edit applied migrations — add a new numbered file.
+**Database**: apply `supabase/migrations/*.sql` in numeric order (0001 → 0006). Migrations are validated against real PostgreSQL and include RLS policies, quota triggers, and org bootstrap logic. Never edit applied migrations — add a new numbered file. `make test-migrations` re-validates the whole chain plus functional guarantees locally and in CI.
 
 ---
 

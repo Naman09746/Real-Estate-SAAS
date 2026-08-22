@@ -169,8 +169,8 @@ Demo mode (no env at all): UI exploration only, mock dataset, no persistence, **
 
 - [ ] All 🔴🟠 variables set in hosting provider (Vercel env settings or Docker `--env-file`)
 - [ ] Secrets **not** committed anywhere; `.env*` is gitignored
-- [ ] Migrations applied to production Supabase (0001→0006)
+- [ ] Migrations applied to production Supabase (0001→0006); validated locally first with `make test-migrations`
 - [ ] Realtime replication enabled on leads/tasks/activities
 - [ ] Webhook URLs configured in Meta/Stripe dashboards (if used)
 - [ ] `webhook_sources` rows registered per connected channel
-- [ ] CI green on main (lint · tests · build · DB migration validation)
+- [ ] CI green on main (lint · tests · build · DB migration validation) — or run `make ci` locally

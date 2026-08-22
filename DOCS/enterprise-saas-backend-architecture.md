@@ -1,96 +1,96 @@
 # Enterprise Multi-Tenant SaaS Backend Architecture
 
-This document details the production backend architecture for **Apex Realty CallCRM**, incorporating enterprise security best practices (OWASP ASVS, OWASP API Security Top 10, multi-tenant isolation, cryptographic webhook verification, and autonomous agent audit trails).
+This document details the production backend architecture for **Apex Realty CallCRM** as implemented — multi-tenant isolation, cryptographic webhook verification, database-enforced quotas, and human-gated AI agent audit trails. It reflects the hardened codebase (migrations `0001`–`0006`).
 
 ---
 
 ## 1. Core Architectural Pillars
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Next.js 15 Client UI                     │
-│  (React 19, App Router, SSR Auth, TanStack React Query)    │
-└──────────────┬───────────────────────────────┬──────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    Next.js 15 Client UI                      │
+│         (React 19, App Router, Supabase SSR Auth)            │
+└──────────────┬───────────────────────────────┬───────────────┘
                │                               │
-       Direct Database Calls          Server-Side Protected APIs
-    (Scoped by JWT Claims / RLS)      (/api/leads, /api/webhooks/*)
+     Direct Database Calls            Server-Side Gated APIs
+   (RLS-scoped, via crm-sync          (/api/chat · /api/leads ·
+    persistence bridge)                /api/webhooks/* · /api/billing/*)
                │                               │
                ▼                               ▼
 ┌──────────────────────────────┐ ┌──────────────────────────────┐
-│     PostgreSQL 15+ Engine    │ │   Enterprise Security Layer  │
-│   (Row-Level Security / RLS) │ │ - Rate Limiter (Token Bucket)│
-│ - Tenant Isolation           │ │ - Zod Inbound Validator      │
-│ - Role-Based Visibility      │ │ - Idempotency Lock           │
-│ - Phone Normalization Trg    │ │ - HMAC-SHA256 Verifier       │
+│    PostgreSQL (Supabase)     │ │    Enterprise Security Layer │
+│  - Row-Level Security (16 tbl)│ │ - Cookie OR Bearer session   │
+│  - Tenant isolation          │ │   verification (getApiAuth…) │
+│  - Role-aware visibility     │ │ - Zod inbound validation     │
+│  - Quota triggers (leads/    │ │ - Two-tier rate limiter      │
+│    seats)                    │ │   (memory L1 + Postgres L2)  │
+│  - Phone normalization trg   │ │ - HMAC-SHA256 verifier       │
+│  - DB-backed idempotency     │ │ - Fail-closed webhooks       │
 └──────────────────────────────┘ └──────────────────────────────┘
 ```
 
-1. **Database-Enforced Multi-Tenancy**: Data isolation is guaranteed at the PostgreSQL engine level via Row-Level Security (`RLS`). Application code bugs cannot accidentally leak cross-tenant data.
-2. **Zero-Trust Input Validation**: Every request body is validated via strict `Zod` schemas. Malformed types, SQL/NoSQL injection payloads, and unwanted fields are rejected with structured `422/400` errors.
-3. **Idempotent Ingestion**: All write APIs and webhooks accept an `X-Idempotency-Key` or parse provider event IDs to prevent duplicate leads and double charges.
-4. **Cryptographic Webhook Handshake**: Inbound webhooks from Meta / WhatsApp Cloud API are validated using `HMAC-SHA256` signatures against app secrets.
-5. **AI Agent Observability**: Autonomous agent tool invocations, prompts, tokens, and decisions are logged to `ai_agent_executions` for compliance, debugging, and cost tracking.
+1. **Database-Enforced Multi-Tenancy**: isolation is guaranteed by Row-Level Security on all tenant tables. `org_id` is resolved from the verified session server-side (or the `webhook_sources` map for provider events) — never from client request bodies.
+2. **Zero-Trust Input Validation**: every request body is validated with strict Zod schemas; malformed types, injection payloads, and oversize inputs are rejected with structured errors.
+3. **Idempotent Ingestion**: webhooks insert into `webhook_events` **before processing** — the unique index on `idempotency_key` drops duplicate deliveries before any state change.
+4. **Cryptographic Webhook Handshake**: HMAC-SHA256 signatures are mandatory and timing-safe-verified. Missing secrets ⇒ endpoint refuses traffic (fail closed). Message timestamps older than ±5 minutes are dropped (replay protection).
+5. **Plan Enforcement at the Database Layer**: `assert_lead_quota` / `assert_seat_quota` triggers enforce plan limits for *every* write path — browser-direct or REST API.
+6. **Human-Gated AI**: AI tool calls have no server-side execute handler; proposals surface to operators behind explicit approval gates. Scans and executions are logged to `ai_agent_executions` (org-scoped).
 
 ---
 
-## 2. PostgreSQL Row-Level Security (RLS) Matrix
+## 2. PostgreSQL Row-Level Security Matrix
 
-| Table | Policy Name | Permitted Scope |
-| :--- | :--- | :--- |
-| `organizations` | `org_tenant_isolation` | `id = current_tenant_id()` |
-| `users` | `users_tenant_isolation` | `org_id = current_tenant_id()` |
-| `people` | `people_tenant_isolation` | `org_id = current_tenant_id()` |
-| `projects` | `projects_tenant_isolation` | `org_id = current_tenant_id()` |
-| `project_units`| `project_units_tenant_isolation` | `org_id = current_tenant_id()` |
-| `leads` | `leads_tenant_isolation` | `org_id = current_tenant_id()` AND (`role IN ('admin','manager')` OR `assigned_salesperson_id = auth.uid()`) |
-| `activities` | `activities_tenant_isolation` | `org_id = current_tenant_id()` |
-| `tasks` | `tasks_tenant_isolation` | `org_id = current_tenant_id()` AND (`role IN ('admin','manager')` OR `assigned_to_user_id = auth.uid()`) |
-| `documents` | `documents_tenant_isolation` | `org_id = current_tenant_id()` |
-| `ai_agent_executions` | `ai_agent_tenant_isolation` | `org_id = current_tenant_id()` |
+Canonical schema: `supabase/migrations/0001_init.sql` (+ hardening in `0005`).
+
+| Table | Scope |
+| :--- | :--- |
+| `orgs` | SELECT: own org (`current_org_id()`). UPDATE: owner/admin/boss only. INSERT: none (bootstrap trigger/service-role only) |
+| `profiles` | SELECT/UPDATE within org. **Role changes guarded by trigger** — never self, owner/admin only |
+| `regions`, `pipeline_stages`, `projects` | Read: org members. Manage: manager+ |
+| `people`, `project_contacts` | Org members (all operations org-scoped) |
+| `project_units` | Read: org. Status update: org members |
+| `leads` | SELECT/UPDATE: assigned rep **or** manager+. INSERT: org (ownership trigger forces non-managers to self). DELETE: boss+ only |
+| `activities` | INSERT + SELECT within org. **Immutable** — no update/delete policies exist |
+| `tasks` | SELECT/UPDATE: own or manager+; INSERT: self or manager+; DELETE: manager+ |
+| `documents` | Org members |
+| `ai_agent_executions` | INSERT + SELECT within org |
+| `audit_log` | INSERT: org. SELECT: manager+ only |
+| `webhook_events` | **Zero client policies** — service-role only |
+| `webhook_sources` | Manager+ manage; used to resolve inbound provider events to tenants |
+| `rate_limit_buckets` | **Zero client policies** — service-role only |
+
+Helper functions (`current_org_id()`, `current_user_role()`) are `security definer` with pinned `search_path`. Column defaults (`0004`) backstop `org_id` resolution.
 
 ---
 
 ## 3. Endpoints & Security Matrix
 
-### 1. `GET /api/leads`
-- **Authentication**: JWT Bearer Token (containing `org_id` and `user_id`).
-- **Rate Limit**: 120 requests / min per IP.
-- **Security Check**: Scoped strictly to the requesting user's tenant organization. Salespeople only receive their assigned opportunities.
+All routes live under `Frontend/src/app/api/`. Authentication = verified session via cookies (browser) or `Authorization: Bearer` (API clients), loaded with the caller's profile (`org_id`, `role`, plan).
 
-### 2. `POST /api/leads`
-- **Authentication**: JWT Bearer Token.
-- **Rate Limit**: 30 requests / min per IP.
-- **Idempotency**: Checked via `X-Idempotency-Key` header.
-- **Validation**: Strict `createLeadSchema` (Zod). Normalizes Indian telephone numbers into E.164 (`+91XXXXXXXXXX`) and automatically deduplicates against existing `people` records.
-
-### 3. `POST /api/activities`
-- **Authentication**: JWT Bearer Token.
-- **Function**: Immutable chronological audit stream logger. Triggers automatic `last_activity_at` updates on the parent lead and generates prioritized follow-up tasks if a next touchpoint was scheduled.
-
-### 4. `POST /api/webhooks/whatsapp`
-- **Authentication**: `X-Hub-Signature-256` HMAC validation with `WHATSAPP_APP_SECRET`.
-- **Handshake**: Handled via `GET /api/webhooks/whatsapp` with `hub.verify_token`.
-- **Idempotency**: Keyed by `wa_msg_<message_id>` in `webhook_events`.
-
-### 5. `POST /api/webhooks/meta-lead-ads`
-- **Authentication**: `X-Hub-Signature-256` HMAC validation.
-- **Idempotency**: Keyed by `meta_leadgen_<leadgen_id>`.
-
-### 6. `POST /api/agent/resurrect`
-- **Function**: Autonomous lost-lead reactivation scanner. Cross-matches dormant buyer requirements against newly released project units and logs token usage and execution latency.
-
-### 7. `GET /api/health`
-- **Function**: Deep health check verifying PostgreSQL database latency, memory consumption, uptime, and AI engine status.
+| Endpoint | Auth | Rate Limit | Notes |
+| :--- | :--- | :--- | :--- |
+| `POST /api/chat` | ✅ session | 20/min per **user** (durable L2) | Plan gate (`402 PLAN_UPGRADE_REQUIRED` below Growth). Zod message bounds (≤20 msgs / ≤32KB), `system` role rejected from clients, `maxOutputTokens=1024`, 25s timeout. Tool has no execute handler |
+| `GET /api/leads` | ✅ session | 120/min per user | Pagination clamped (≤100). Reps restricted to own leads; explicit `org_id` filter alongside RLS |
+| `POST /api/leads` | ✅ session | 30/min per user | Zod `createLeadSchema`; E.164 normalization; people dedup anchor per-org; `salesperson_id` forced to caller unless manager+ |
+| `GET /api/activities` | ✅ session | 120/min per user | Limit clamped ≤200; org-scoped |
+| `POST /api/activities` | ✅ session | 60/min per user | Immutable audit insert; `user_id`/`user_name` derived from session; lead must belong to caller's org (404 otherwise) |
+| `POST /api/agent/resurrect` | ✅ manager+ role | 20/min per user | Plan gate. `daysThreshold` strict int 1–365 (kills PostgREST `.or()` injection). Read-only scan; logs executions |
+| `GET /api/health` | public (minimal) / manager+ (verbose) | — | Public body: status + timestamp only. Verbose adds latency/memory/webhook readiness |
+| `POST /api/billing/checkout` | ✅ manager+ | 10/min per user (durable) | Simulated mode until provider keys; real sessions `501` pending SDK integration. Org always from session |
+| `POST /api/billing/webhook` | ✅ HMAC fail-closed | n/a | Insert-first idempotency in `webhook_events`; activation/cancellation event mapping; failures recorded, never raw-error responses |
+| `POST /api/webhooks/whatsapp` | ✅ HMAC fail-closed | n/a | ±5min timestamp freshness; `phone_number_id` → `webhook_sources` tenant resolution; unmapped sources logged, never written |
+| `POST /api/webhooks/meta-lead-ads` | ✅ HMAC fail-closed | n/a | Same pattern keyed on `page_id` |
+| `GET /api/webhooks/*` | verify-token handshake | — | Timing-safe token comparison; 503 if tokens unconfigured |
 
 ---
 
 ## 4. Standardized API Response Contracts
 
-### Success Response (`200 / 201`)
+### Success (`200 / 201`)
 ```json
 {
   "success": true,
-  "data": { ... },
+  "data": { },
   "meta": {
     "requestId": "req_a8f9c102",
     "timestamp": "2026-08-21T18:45:00.000Z",
@@ -101,7 +101,7 @@ This document details the production backend architecture for **Apex Realty Call
 }
 ```
 
-### Error Response (`400 / 401 / 403 / 422 / 429 / 500`)
+### Error (`400 / 401 / 403 / 404 / 422 / 429 / 503`)
 ```json
 {
   "success": false,
@@ -115,16 +115,17 @@ This document details the production backend architecture for **Apex Realty Call
   }
 }
 ```
-*(Note: Internal stack traces, raw SQL queries, and database passwords are never returned in client error responses).*
+Internal stack traces, raw SQL, and provider error text are never returned — 5xx bodies are scrubbed and reported to the observability pipeline with the correlation ID.
 
 ---
 
-## 5. Security & QA Verification Checklist
+## 5. Security Verification Checklist (verified state)
 
-- [x] **Authentication Bypass**: Unauthenticated requests to protected endpoints return `401 Unauthorized`.
-- [x] **BOLA / IDOR Prevention**: Fetching/modifying records across organizations is blocked by PostgreSQL RLS.
-- [x] **Tenant Data Isolation**: All queries require `org_id` match.
-- [x] **Phone Deduplication**: Normalized E.164 deduplication prevents duplicate buyer identities.
-- [x] **Rate Limiting**: Token-bucket protection enforces thresholds and returns `429 Too Many Requests`.
-- [x] **Webhook Idempotency**: Duplicate webhook payloads are safely acknowledged without creating duplicate records.
-- [x] **Audit Trail**: Every significant entity mutation is recorded in `activities` and `audit_logs`.
+- [x] **Authentication bypass**: all protected routes return `401` without a valid session (cookie path reuses credential-carrying client for profile lookup)
+- [x] **BOLA / IDOR**: cross-org reads/writes blocked by RLS **plus** explicit `org_id` filters in every query
+- [x] **Privilege escalation**: profile role changes blocked for self and non-owner/admins (trigger); task scoping restored after permissive policy removal; leads ownership forced on insert
+- [x] **Quota abuse**: lead/seat limits enforced by DB triggers regardless of write path; unknown plans degrade to starter at the API layer
+- [x] **Webhook forgery/replay**: fail-closed secrets, mandatory timing-safe HMAC, timestamp freshness, insert-first idempotency
+- [x] **Rate limiting**: durable Postgres-backed limiter on cost-critical endpoints with graceful memory fallback
+- [x] **Audit trail**: immutable activities stream, org-scoped AI execution logs, audit_log (manager-read)
+- [x] **Automated regression gate**: `npm run test:migrations` (CI job with real PostgreSQL) asserts bootstrap, seed idempotency, quota firing, role guard, and ownership forcing on every push

@@ -96,8 +96,8 @@ cp .env.local.example .env.local
 
 ### 3. Run
 ```bash
-npm install
-npm run dev        # http://localhost:3000
+make install
+make dev           # http://localhost:3000  (or: make help for all targets)
 ```
 Signing up auto-provisions your organization, owner profile, default pipeline stages, and a representative sample dataset so the cockpit is usable immediately.
 
@@ -105,16 +105,17 @@ Without env configuration the app runs in demo mode (mock dataset, in-memory) fo
 
 ### Testing & CI
 ```bash
-npm test           # 60 tests: unit, security primitives, mappers, state machine
-npm run lint       # ESLint (next/core-web-vitals)
-npm run build      # typecheck + production compile
+make ci             # everything CI runs: lint → DB validation → tests → build
+make test           # 60 tests: unit, security primitives, mappers, state machine
+make test-migrations # full migration + RLS + quota validation against real Postgres
+make test-e2e       # Playwright browser smoke suite (builds + serves the app)
 ```
-GitHub Actions runs lint → test → build on every push/PR.
+GitHub Actions runs lint → dependency audit → vitest → build **and** a dedicated job that applies all migrations to PostgreSQL and asserts tenant isolation, quota triggers, and role guards on every push/PR.
 
 ### Production (Docker)
 ```bash
-docker build -t callcrm:latest .
-docker run -p 3000:3000 --env-file .env.production callcrm:latest
+make docker-build
+make docker-run      # expects Frontend/.env.production
 # Non-root standalone runtime; HEALTHCHECK probes /api/health
 ```
 
