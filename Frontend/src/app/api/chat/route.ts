@@ -6,6 +6,7 @@ import {
 } from "@/lib/server/api-security";
 import { checkRateLimitDurable } from "@/lib/server/rate-limit";
 import { getApiAuthContext } from "@/lib/server/supabase-server";
+import { checkFeatureAccess, resolvePlan } from "@/lib/server/subscription";
 
 export const maxDuration = 30;
 
@@ -75,6 +76,16 @@ export async function POST(req: Request) {
   const auth = await getApiAuthContext();
   if (!auth) {
     return apiError("Authentication required", 401, "UNAUTHORIZED");
+  }
+
+  // 1b. Plan feature gate — enforced server-side against the org's REAL plan
+  if (!checkFeatureAccess("ai_agents", resolvePlan(auth.plan))) {
+    return apiError(
+      "AI agents are not available on your current plan. Please upgrade.",
+      402,
+      "PLAN_UPGRADE_REQUIRED",
+      { feature: "ai_agents", plan: auth.plan }
+    );
   }
 
   // 2. Per-user rate limit (durable across serverless instances; cost control)

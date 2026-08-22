@@ -32,6 +32,7 @@ import { getSupabaseClient } from "@/lib/supabase";
 import {
   isSyncEnabled,
   hydrateCrmData,
+  fetchLeads,
   mapLeadRow,
   leadToRow,
   updateLeadRemote,
@@ -42,6 +43,8 @@ import {
   insertDocumentRemote,
   deleteDocumentRemote,
 } from "@/lib/persistence/crm-sync";
+import { reportError } from "@/lib/observability/reporter";
+import { scheduleRetry, onWriteAbandoned } from "@/lib/persistence/retry-queue";
 import { useAuth } from "@/context/auth-context";
 import { toast } from "sonner";
 
@@ -133,16 +136,21 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
   }, [authUser, currentOrgId]);
 
   // --------------------------------------------------------------------
-  // Hydration: load live tenant data once per authenticated session.
+  // Hydration: load live tenant data once per authenticated session, then
+  // keep leads in sync across sessions/devices via a realtime channel.
   // --------------------------------------------------------------------
   React.useEffect(() => {
     if (!isSyncEnabled() || authLoading || !authUser) return;
 
     let cancelled = false;
+    let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+    let channel: ReturnType<NonNullable<ReturnType<typeof getSupabaseClient>>["channel"]> | null = null;
+
     (async () => {
       const data = await hydrateCrmData();
       if (cancelled) return;
       if (!data) {
+        reportError("crm.hydrate", new Error("CRM hydration returned null"));
         toast.error("Live CRM data could not be loaded. Showing demo dataset.");
         return;
       }
@@ -156,12 +164,45 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       setActivities(data.activities);
       setTasks(data.tasks);
       setDocuments(data.documents);
+
+      // Realtime: any lead change from ANY session/device triggers a
+      // debounced refetch — simple, correct, and avoids patch-order bugs.
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        channel = supabase
+          .channel("crm-leads-realtime")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "leads" },
+            () => {
+              if (refetchTimer) clearTimeout(refetchTimer);
+              refetchTimer = setTimeout(async () => {
+                const fresh = await fetchLeads();
+                if (!cancelled && fresh) setLeads(fresh);
+              }, 1500);
+            }
+          )
+          .subscribe();
+      }
     })();
 
     return () => {
       cancelled = true;
+      if (refetchTimer) clearTimeout(refetchTimer);
+      channel?.unsubscribe();
     };
   }, [authUser?.id, authLoading]);
+
+  // Surface writes that exhausted their retry budget — real potential loss.
+  React.useEffect(() => {
+    return onWriteAbandoned((label, attempts) => {
+      reportError("crm.sync.abandoned", new Error("Write abandoned after retries"), {
+        label,
+        attempts,
+      });
+      toast.error(`"${label}" could not be saved after ${attempts} attempts. Please verify your data.`);
+    });
+  }, []);
 
   // Filters (primarily for Boss/Manager) with localStorage persistence
   const [selectedRegionId, setSelectedRegionIdState] = React.useState<string>("all");
@@ -185,43 +226,61 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const persistFilter = (key: string, value: string) => {
+  // Stable callbacks — recreated never, so consumers can rely on identity.
+  const persistFilter = React.useCallback((key: string, value: string) => {
     try {
       const saved = JSON.parse(localStorage.getItem("callcrm_global_filters") || "{}");
       localStorage.setItem("callcrm_global_filters", JSON.stringify({ ...saved, [key]: value }));
     } catch {}
-  };
+  }, []);
 
-  const setSelectedRegionId = (id: string) => {
-    setSelectedRegionIdState(id);
-    persistFilter("selectedRegionId", id);
-  };
+  const setSelectedRegionId = React.useCallback(
+    (id: string) => {
+      setSelectedRegionIdState(id);
+      persistFilter("selectedRegionId", id);
+    },
+    [persistFilter]
+  );
 
-  const setSelectedSalespersonId = (id: string) => {
-    setSelectedSalespersonIdState(id);
-    persistFilter("selectedSalespersonId", id);
-  };
+  const setSelectedSalespersonId = React.useCallback(
+    (id: string) => {
+      setSelectedSalespersonIdState(id);
+      persistFilter("selectedSalespersonId", id);
+    },
+    [persistFilter]
+  );
 
-  const setSelectedProjectId = (id: string) => {
-    setSelectedProjectIdState(id);
-    persistFilter("selectedProjectId", id);
-  };
+  const setSelectedProjectId = React.useCallback(
+    (id: string) => {
+      setSelectedProjectIdState(id);
+      persistFilter("selectedProjectId", id);
+    },
+    [persistFilter]
+  );
 
-  const setDateRange = (range: string) => {
-    setDateRangeState(range);
-    persistFilter("dateRange", range);
-  };
+  const setDateRange = React.useCallback(
+    (range: string) => {
+      setDateRangeState(range);
+      persistFilter("dateRange", range);
+    },
+    [persistFilter]
+  );
 
   // Fire-and-forget remote sync wrapper. Local state stays optimistic; failures
-  // are surfaced without blocking the 10-second workflow.
-  const syncRemote = async (label: string, fn: () => Promise<boolean>) => {
+  // are queued for automatic retry (online/focus/timer) and surfaced honestly.
+  const syncRemote = React.useCallback(async (label: string, fn: () => Promise<boolean>) => {
     try {
       const ok = await fn();
-      if (!ok) toast.warning(`${label} could not be synced to the server.`);
-    } catch {
-      toast.warning(`${label} could not be synced to the server.`);
+      if (!ok) {
+        scheduleRetry(label, fn);
+        toast.warning(`${label} saved locally — will retry automatically.`);
+      }
+    } catch (e) {
+      reportError("crm.sync", e, { label });
+      scheduleRetry(label, fn);
+      toast.warning(`${label} saved locally — will retry automatically.`);
     }
-  };
+  }, []);
 
   // Multi-Tenant & Role-Aware Data Filtering
   const filteredLeads = React.useMemo(() => {
@@ -266,7 +325,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
   }, [tasks, currentUser]);
 
   // Fast activity logger with interconnected state updates
-  const logActivity = async ({
+  const logActivity = React.useCallback(async ({
     leadId,
     type,
     outcome,
@@ -394,10 +453,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
 
     toast.success(`Logged ${type.toUpperCase()}: ${outcomeLabel || "Touchpoint recorded"}`);
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, tasks, currentUser.id, currentUser.orgId, currentUser.name, syncRemote]);
 
-  // Safe stage transition with unit & lead health synchronization
-  const updateLeadStage = async (leadId: string, newStage: PipelineStage) => {
+  const updateLeadStage = React.useCallback(async (leadId: string, newStage: PipelineStage) => {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead) {
       toast.error("Lead not found");
@@ -484,10 +543,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
 
     toast.success(`Advanced ${lead.personName} → ${newStage.replace("_", " ").toUpperCase()}`);
     return true;
-  };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, currentUser.id, currentUser.orgId, currentUser.name, syncRemote]);
 
-  // Create lead with people table synchronization and E.164 phone deduplication
-  const createLead = async (
+  const createLead = React.useCallback(async (
     leadData: Omit<Lead, "id" | "orgId" | "createdAt" | "lastActivityAt" | "lastActivityText">
   ) => {
     const normalizedPhone = normalizePhone(leadData.phone);
@@ -663,9 +722,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       toast.success(`Added new lead: ${newLead.personName}`);
     }
     return newLead;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [people, currentOrgId, authUser, syncRemote]);
 
-  const completeTask = (taskId: string) => {
+  const completeTask = React.useCallback((taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: "completed" as const } : t))
@@ -691,9 +751,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         );
       }
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, syncRemote]);
 
-  const updateUnitStatus = async (
+  const updateUnitStatus = React.useCallback(async (
     unitId: string,
     status: UnitStatus,
     leadId?: string,
@@ -723,9 +784,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       );
     }
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncRemote]);
 
-  const assignUnitToLead = async (leadId: string, unitId: string) => {
+  const assignUnitToLead = React.useCallback(async (leadId: string, unitId: string) => {
     const unit = units.find((u) => u.id === unitId);
     const lead = leads.find((l) => l.id === leadId);
     if (!unit || !lead) return false;
@@ -777,9 +839,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     }
 
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [units, leads, syncRemote]);
 
-  const bulkUpdateLeadsStage = async (leadIds: string[], stage: PipelineStage) => {
+  const bulkUpdateLeadsStage = React.useCallback(async (leadIds: string[], stage: PipelineStage) => {
     setLeads((prev) =>
       prev.map((l) =>
         leadIds.includes(l.id)
@@ -809,9 +872,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       );
     }
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncRemote]);
 
-  const bulkAssignLeadsRep = async (leadIds: string[], repId: string, repName: string) => {
+  const bulkAssignLeadsRep = React.useCallback(async (leadIds: string[], repId: string, repName: string) => {
     setLeads((prev) =>
       prev.map((l) =>
         leadIds.includes(l.id)
@@ -840,9 +904,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       );
     }
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncRemote]);
 
-  const bulkScheduleFollowUp = async (leadIds: string[], dueDate: string, dueTime?: string) => {
+  const bulkScheduleFollowUp = React.useCallback(async (leadIds: string[], dueDate: string, dueTime?: string) => {
     const followUpAt = `${dueDate}${dueTime ? `, ${dueTime}` : ""}`;
     const isToday = dueDate.toLowerCase().includes("today");
 
@@ -894,10 +959,11 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       ]);
     }
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, syncRemote]);
 
   // Document Vault methods
-  const uploadDocument = async (docData: Omit<CRMDocument, "id" | "orgId" | "createdAt">): Promise<CRMDocument> => {
+  const uploadDocument = React.useCallback(async (docData: Omit<CRMDocument, "id" | "orgId" | "createdAt">): Promise<CRMDocument> => {
     const newDoc: CRMDocument = {
       ...docData,
       id: `doc-${Date.now()}`,
@@ -912,9 +978,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       void syncRemote("Document", () => insertDocumentRemote(docRow));
     }
     return newDoc;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser.orgId, syncRemote]);
 
-  const deleteDocument = async (docId: string): Promise<boolean> => {
+  const deleteDocument = React.useCallback(async (docId: string): Promise<boolean> => {
     setDocuments((prev) => prev.filter((d) => d.id !== docId));
     toast.success("Document removed from vault");
 
@@ -922,7 +989,8 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       void syncRemote("Document deletion", () => deleteDocumentRemote(docId));
     }
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncRemote]);
 
   // Lost Lead Reactivation Engine: Detect sleeping/lost leads with Tenant Isolation
   const reactivationLeads = React.useMemo(() => {
@@ -935,7 +1003,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     });
   }, [leads, currentUser]);
 
-  const reactivateLead = async (leadId: string, customPitch?: string): Promise<boolean> => {
+  const reactivateLead = React.useCallback(async (leadId: string, customPitch?: string): Promise<boolean> => {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead) return false;
 
@@ -1015,49 +1083,85 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
 
     toast.success(`⚡ Reactivated ${lead.personName}! High-priority task created.`);
     return true;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, currentUser.id, currentUser.orgId, currentUser.name, syncRemote]);
 
-  return (
-    <CRMContext.Provider
-      value={{
-        currentUser,
-        regions,
-        users,
-        projects,
-        units,
-        people,
-        leads,
-        filteredLeads,
-        activities,
-        tasks,
-        filteredTasks,
-        documents,
-        reactivationLeads,
-        selectedRegionId,
-        setSelectedRegionId,
-        selectedSalespersonId,
-        setSelectedSalespersonId,
-        selectedProjectId,
-        setSelectedProjectId,
-        dateRange,
-        setDateRange,
-        logActivity,
-        updateLeadStage,
-        createLead,
-        completeTask,
-        updateUnitStatus,
-        assignUnitToLead,
-        bulkUpdateLeadsStage,
-        bulkAssignLeadsRep,
-        bulkScheduleFollowUp,
-        uploadDocument,
-        deleteDocument,
-        reactivateLead,
-      }}
-    >
-      {children}
-    </CRMContext.Provider>
+  // Memoized context value: prevents the entire consumer tree (~46 edges)
+  // from re-rendering on every keystroke/mutation anywhere in the app.
+  const contextValue = React.useMemo(
+    () => ({
+      currentUser,
+      regions,
+      users,
+      projects,
+      units,
+      people,
+      leads,
+      filteredLeads,
+      activities,
+      tasks,
+      filteredTasks,
+      documents,
+      reactivationLeads,
+      selectedRegionId,
+      setSelectedRegionId,
+      selectedSalespersonId,
+      setSelectedSalespersonId,
+      selectedProjectId,
+      setSelectedProjectId,
+      dateRange,
+      setDateRange,
+      logActivity,
+      updateLeadStage,
+      createLead,
+      completeTask,
+      updateUnitStatus,
+      assignUnitToLead,
+      bulkUpdateLeadsStage,
+      bulkAssignLeadsRep,
+      bulkScheduleFollowUp,
+      uploadDocument,
+      deleteDocument,
+      reactivateLead,
+    }),
+    [
+      currentUser,
+      regions,
+      users,
+      projects,
+      units,
+      people,
+      leads,
+      filteredLeads,
+      activities,
+      tasks,
+      filteredTasks,
+      documents,
+      reactivationLeads,
+      selectedRegionId,
+      setSelectedRegionId,
+      selectedSalespersonId,
+      setSelectedSalespersonId,
+      selectedProjectId,
+      setSelectedProjectId,
+      dateRange,
+      setDateRange,
+      logActivity,
+      updateLeadStage,
+      createLead,
+      completeTask,
+      updateUnitStatus,
+      assignUnitToLead,
+      bulkUpdateLeadsStage,
+      bulkAssignLeadsRep,
+      bulkScheduleFollowUp,
+      uploadDocument,
+      deleteDocument,
+      reactivateLead,
+    ]
   );
+
+  return <CRMContext.Provider value={contextValue}>{children}</CRMContext.Provider>;
 }
 
 export function useCRM() {

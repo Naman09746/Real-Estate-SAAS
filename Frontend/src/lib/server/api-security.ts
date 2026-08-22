@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { ZodError } from "zod";
+import { reportError } from "@/lib/observability/reporter";
 
 // ====================================================================
 // ENTERPRISE API SECURITY & RESPONSE STANDARDIZATION ENGINE
@@ -87,10 +88,10 @@ export function apiError(
   details?: any
 ): NextResponse<ApiErrorResponse> {
   const requestId = `req_${crypto.randomBytes(6).toString("hex")}`;
-  
-  // Log server error securely without exposing PII
+
+  // Report server errors to the observability pipeline with correlation ID.
   if (statusCode >= 500) {
-    console.error(`[API_SERVER_ERROR] [${requestId}] [${code}] ${message}`, details || "");
+    reportError("api", new Error(message), { requestId, code, status: statusCode });
   }
 
   return NextResponse.json(

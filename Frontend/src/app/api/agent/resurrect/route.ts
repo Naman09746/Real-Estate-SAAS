@@ -7,6 +7,7 @@ import {
   isLiveSupabaseAvailable,
   MANAGER_ROLES,
 } from "@/lib/server/supabase-server";
+import { checkFeatureAccess, resolvePlan } from "@/lib/server/subscription";
 
 // POST /api/agent/resurrect - Lost-Lead Matching Engine
 // Manager+ only: returns dormant buyer PII across the organization.
@@ -21,6 +22,16 @@ export async function POST(req: NextRequest) {
       "Resurrection scanning requires a manager or admin role",
       403,
       "FORBIDDEN"
+    );
+  }
+
+  // Plan feature gate — enforced server-side against the org's REAL plan
+  if (!checkFeatureAccess("resurrection", resolvePlan(auth.plan))) {
+    return apiError(
+      "The Resurrection Engine is not available on your current plan. Please upgrade.",
+      402,
+      "PLAN_UPGRADE_REQUIRED",
+      { feature: "resurrection", plan: auth.plan }
     );
   }
 

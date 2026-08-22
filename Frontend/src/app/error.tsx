@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { reportError } from "@/lib/observability/reporter";
 
 export default function Error({
   error,
@@ -12,7 +13,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[APP_ERROR]", error.digest || "unknown", error.message);
+    reportError("ui.error-boundary", error, { digest: error.digest });
   }, [error]);
 
   return (

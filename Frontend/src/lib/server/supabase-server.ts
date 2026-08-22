@@ -20,6 +20,7 @@ export interface ApiAuthContext {
   role: string;
   email: string;
   fullName: string;
+  plan: string | null;
 }
 
 // Roles allowed to perform manager-level actions (scans, org-wide reads)
@@ -95,11 +96,15 @@ export async function getApiAuthContext(): Promise<ApiAuthContext | null> {
   try {
     const { data: profile } = await authedClient
       .from("profiles")
-      .select("org_id, role, full_name")
+      .select("org_id, role, full_name, org:org_id(plan)")
       .eq("user_id", user.id)
       .maybeSingle();
 
     if (!profile?.org_id) return null;
+
+    // PostgREST may type the embedded relation as array or object
+    const orgEmbed = profile.org as { plan?: string } | { plan?: string }[] | null;
+    const orgPlan = Array.isArray(orgEmbed) ? orgEmbed[0]?.plan : orgEmbed?.plan;
 
     return {
       userId: user.id,
@@ -107,6 +112,7 @@ export async function getApiAuthContext(): Promise<ApiAuthContext | null> {
       role: profile.role,
       email: user.email ?? "",
       fullName: profile.full_name,
+      plan: orgPlan ?? null,
     };
   } catch {
     return null;
