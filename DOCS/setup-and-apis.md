@@ -1,0 +1,176 @@
+# API Keys & Environment Setup Guide
+
+Every external service CallCRM uses, what it powers, where to get it, and what breaks without it.
+
+**Rule of thumb:** variables starting with `NEXT_PUBLIC_` are safe for the browser. Everything else is **server-only** — never put them in a `NEXT_PUBLIC_*` variable, never commit them.
+
+Copy `Frontend/.env.local.example` → `Frontend/.env.local` and fill in as you go.
+
+---
+
+## Quick Summary
+
+| Priority | Service | Variables | Without it |
+|---|---|---|---|
+| 🔴 **Required** | Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | No login, no data — app runs in demo mode only |
+| 🟠 For AI features | Google Gemini | `GEMINI_API_KEY` *(or* `GOOGLE_GENERATIVE_AI_API_KEY`*)* | `/api/chat` returns 503; AI surfaces run client-side simulation only |
+| 🟡 Optional | WhatsApp Cloud API | `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` | Inbound webhook refuses traffic (by design) |
+| 🟡 Optional | Meta Lead Ads | `META_LEAD_ADS_VERIFY_TOKEN`, `META_APP_SECRET` | Inbound webhook refuses traffic (by design) |
+| 🟡 Optional | Payments (Stripe or Razorpay) | `BILLING_WEBHOOK_SECRET` + provider key | Checkout runs in "simulated" mode; no real charges |
+| ⚪ Optional | Error tracking | Sentry DSN (when wired) | Errors log to structured console only |
+
+---
+
+## 1. 🔴 Supabase — REQUIRED (database + auth + realtime)
+
+Powers: login/signup, all CRM data with Row-Level Security, org auto-bootstrap on signup, sample-data seeding, quota triggers, realtime sync.
+
+**Where to get it:** [supabase.com](https://supabase.com) → New project (free tier works) → Project Settings → API
+
+```env
+# Client-safe (browser bundle) — "Project URL" and "anon public" key
+NEXT_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...   # the long "anon public" key
+
+# SERVER-ONLY ("service_role" key) — bypasses RLS; used by webhooks & billing only
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
+```
+
+**Setup steps after creating the project:**
+1. Apply migrations in order — SQL Editor → paste each file from `supabase/migrations/` (`0001_init.sql` through `0006_billing_quotas.sql`). This creates all tables, RLS policies, triggers, and quota enforcement.
+2. Enable **Realtime**: Database → Replication → enable `postgres_changes` for tables `leads`, `tasks`, `activities`.
+3. Auth providers: Email/password is on by default; add Google OAuth (Authentication → Providers) if you want the "Log in with Google" button to work.
+4. If you allow open signups, consider enabling email confirmation (Auth → Providers → Email → "Confirm email").
+
+> ⚠️ The service_role key must never reach the browser or a `NEXT_PUBLIC_` variable.
+
+---
+
+## 2. 🟠 Google Gemini — for the Aria AI agent
+
+Powers: `/api/chat` streaming qualification assistant.
+
+**Where to get it:** [Google AI Studio](https://aistudio.google.com/apikey) → Get API key (generous free tier)
+
+```env
+GEMINI_API_KEY=AIza...
+# Alternative name also accepted:
+# GOOGLE_GENERATIVE_AI_API_KEY=AIza...
+```
+
+Without it: authenticated users hitting the chat route get a clean `503 AI_PROVIDER_UNAVAILABLE`; the command center still works in simulation mode (client heuristics, still approval-gated).
+
+Model used: `gemini-2.5-flash`. Usage is capped per request (`maxOutputTokens=1024`) and per user (20 req/min durable rate limit), so cost exposure is bounded.
+
+---
+
+## 3. 🟡 WhatsApp Cloud API — inbound message ingestion
+
+Powers: `/api/webhooks/whatsapp` — customer replies create/update contacts + audit trail automatically.
+
+**Where to get it:** [Meta for Developers](https://developers.facebook.com) → Create app → Add "WhatsApp" product
+
+```env
+WHATSAPP_VERIFY_TOKEN=<any long random string you invent>
+WHATSAPP_APP_SECRET=<from App Settings → Basic → App Secret>
+```
+
+**Setup steps:**
+1. Copy your phone number's **Phone Number ID** (WhatsApp → API Setup).
+2. In Supabase SQL Editor, register the mapping so inbound messages resolve to your tenant:
+   ```sql
+   insert into webhook_sources (org_id, provider, external_id)
+   values ('<your-org-uuid>', 'whatsapp', '<phone-number-id>');
+   ```
+3. In Meta App → WhatsApp → Configuration, set the webhook URL to
+   `https://<your-domain>/api/webhooks/whatsapp` and paste your verify token.
+
+> Both variables are mandatory — the endpoint fails closed (503) if either is missing, and rejects unsigned payloads (401).
+
+---
+
+## 4. 🟡 Meta Lead Ads — instant lead capture from Facebook/Instagram ads
+
+Same pattern as WhatsApp:
+
+```env
+META_LEAD_ADS_VERIFY_TOKEN=<any long random string you invent>
+META_APP_SECRET=<same Meta App Secret as above>
+```
+
+**Setup steps:**
+1. Webhook URL: `https://<your-domain>/api/webhooks/meta-lead-ads`, subscribe to the **leadgen** field for your Page.
+2. Register the Page ID:
+   ```sql
+   insert into webhook_sources (org_id, provider, external_id)
+   values ('<your-org-uuid>', 'meta_ads', '<page-id>');
+   ```
+
+Skip this entirely if you don't run Meta lead ads.
+
+---
+
+## 5. 🟡 Payments — Stripe *or* Razorpay (pick one to start)
+
+Powers: plan upgrades. Today checkout runs in **simulated mode** until keys exist; only signed webhook events ever change a subscription.
+
+### Common (required before going live with payments)
+```env
+BILLING_WEBHOOK_SECRET=<any long random string — used to verify webhook signatures>
+```
+
+### Option A: Stripe ([dashboard.stripe.com](https://dashboard.stripe.com))
+```env
+STRIPE_SECRET_KEY=sk_test_...        # use sk_live_... in production
+STRIPE_WEBHOOK_SECRET=whsec_...      # optional alias for BILLING_WEBHOOK_SECRET
+```
+Webhook endpoint to configure: `https://<your-domain>/api/billing/webhook`
+(listen to: `checkout.session.completed`, `invoice.payment_succeeded`, `customer.subscription.deleted`)
+
+### Option B: Razorpay ([dashboard.razorpay.com](https://dashboard.razorpay.com))
+```env
+RAZORPAY_KEY_SECRET=...
+```
+Webhook endpoint: same URL, with signature verification enabled.
+
+> Note: checkout session *creation* is stubbed (`501`) pending SDK integration — the webhook processor is fully built, fail-closed, idempotent, and tenant-resolving.
+
+---
+
+## 6. ⚪ Error Tracking (recommended before launch)
+
+The observability pipeline (`lib/observability/reporter.ts`) currently emits structured `[CRM_ERROR]` console logs wired into the error boundary, all API 5xx, and failed syncs. To forward these to Sentry:
+
+1. Create an account at [sentry.io](https://sentry.io), create a Next.js project, copy the DSN.
+2. Install the SDK: `npm install @sentry/nextjs`
+3. Wire it at the marked hook point in `reporter.ts` (`forwardToReporter`) and set:
+   ```env
+   NEXT_PUBLIC_SENTRY_DSN=https://...o.ingest.sentry.io/...
+   ```
+
+---
+
+## Local Development Minimal Setup
+
+Just want the app running locally with real auth/data?
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
+
+Apply the six migrations → sign up → your org, owner profile, pipeline stages, and sample data are created automatically. Everything else degrades gracefully.
+
+Demo mode (no env at all): UI exploration only, mock dataset, no persistence, **no fake login**.
+
+---
+
+## Production Deployment Checklist
+
+- [ ] All 🔴🟠 variables set in hosting provider (Vercel env settings or Docker `--env-file`)
+- [ ] Secrets **not** committed anywhere; `.env*` is gitignored
+- [ ] Migrations applied to production Supabase (0001→0006)
+- [ ] Realtime replication enabled on leads/tasks/activities
+- [ ] Webhook URLs configured in Meta/Stripe dashboards (if used)
+- [ ] `webhook_sources` rows registered per connected channel
+- [ ] CI green on main (lint · tests · build · DB migration validation)

@@ -22,6 +22,7 @@ Built with **Next.js 15 App Router**, **React 19**, **TypeScript**, **Tailwind C
 ## 🧠 AI Agents & Automation Modules
 
 > For the full architectural breakdown, see [`DOCS/ai-agents-and-automation.md`](./DOCS/ai-agents-and-automation.md).
+> For every API key / external service the app uses, see [`DOCS/setup-and-apis.md`](./DOCS/setup-and-apis.md).
 
 | Agent / Engine | Purpose | Trust Model |
 | :--- | :--- | :--- |
